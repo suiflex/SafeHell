@@ -50,7 +50,9 @@ latest_version() {
 	url=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/$REPO/releases/latest") ||
 		err "could not reach GitHub to resolve the latest release"
 	tag=${url##*/}
-	[ -n "$tag" ] && [ "$tag" != "releases" ] || err "no published release found for $REPO"
+	if [ -z "$tag" ] || [ "$tag" = "releases" ]; then
+		err "no published release found for $REPO"
+	fi
 	printf '%s' "$tag"
 }
 
