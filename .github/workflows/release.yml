@@ -16,8 +16,14 @@ jobs:
           - os: ubuntu-latest
             asset: safeshell-linux-x86_64
             extension: ""
+          - os: ubuntu-24.04-arm
+            asset: safeshell-linux-aarch64
+            extension: ""
+          - os: macos-13
+            asset: safeshell-macos-x86_64
+            extension: ""
           - os: macos-latest
-            asset: safeshell-macos
+            asset: safeshell-macos-aarch64
             extension: ""
           - os: windows-latest
             asset: safeshell-windows-x86_64.exe
@@ -34,7 +40,20 @@ jobs:
         with:
           name: ${{ matrix.asset }}
           path: ${{ matrix.asset }}
+
+  # Publishes every asset together with SHA256SUMS in one release, so install.sh
+  # never sees a release whose checksums have not been uploaded yet.
+  publish:
+    needs: binary
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Generate checksums
+        run: cd artifacts && sha256sum safeshell-* > SHA256SUMS
       - uses: softprops/action-gh-release@v3
         with:
-          files: ${{ matrix.asset }}
+          files: artifacts/*
           generate_release_notes: true

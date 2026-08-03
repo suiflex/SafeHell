@@ -15,7 +15,18 @@ SafeShell is a local approval broker for SSH commands requested by AI coding age
 
 SafeShell does not sandbox the remote shell. Output redaction and agent hooks are defense-in-depth, not guarantees against every possible secret representation or bypass by another local process running as your user.
 
-## Install from source
+## Install
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/badrus123/SafeShell/develop/install.sh | sh
+safeshell setup
+```
+
+The script downloads the latest release binary for your platform, verifies it against the release `SHA256SUMS`, and installs it to `$HOME/.local/bin`. Set `SAFESHELL_VERSION` to pin a tag or `SAFESHELL_INSTALL_DIR` to change the destination. Read the script before piping it to a shell.
+
+Prebuilt binaries cover Linux and macOS on x86_64 and aarch64, and Windows on x86_64. Windows users should download `safeshell-windows-x86_64.exe` from the [releases page](https://github.com/badrus123/SafeShell/releases) directly.
+
+### From source
 
 Rust 1.85 or newer is required.
 
@@ -23,8 +34,6 @@ Rust 1.85 or newer is required.
 cargo install --path .
 safeshell setup
 ```
-
-Release tags produce native binaries for Linux, macOS, and Windows.
 
 ## Configure a project
 

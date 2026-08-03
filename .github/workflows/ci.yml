@@ -25,4 +25,10 @@ jobs:
         run: cargo clippy --all-targets -- -D warnings
       - name: Test
         run: cargo test --all-targets
+      - name: Shellcheck
+        if: runner.os == 'Linux'
+        run: shellcheck -s sh install.sh tests/install_sh_test.sh
+      - name: Installer script
+        if: runner.os != 'Windows'
+        run: sh tests/install_sh_test.sh
 
