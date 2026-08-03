@@ -1,0 +1,15 @@
+version = 1
+project_id = "00000000-0000-0000-0000-000000000001"
+
+[limits]
+timeout_seconds = 60
+max_output_bytes = 1048576
+
+[servers.test]
+host = "example.invalid"
+port = 22
+username = "tester"
+
+[servers.test.auth]
+type = "ssh-agent"
+

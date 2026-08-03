@@ -1,0 +1,40 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  binary:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset: safeshell-linux-x86_64
+            extension: ""
+          - os: macos-latest
+            asset: safeshell-macos
+            extension: ""
+          - os: windows-latest
+            asset: safeshell-windows-x86_64.exe
+            extension: .exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release --locked
+      - name: Stage binary
+        shell: bash
+        run: cp "target/release/safeshell${{ matrix.extension }}" "${{ matrix.asset }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}
+      - uses: softprops/action-gh-release@v3
+        with:
+          files: ${{ matrix.asset }}
+          generate_release_notes: true

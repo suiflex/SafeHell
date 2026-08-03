@@ -1,0 +1,9 @@
+/target/
+.safeshell.toml
+!tests/fixtures/project/.safeshell.toml
+*.swp
+.DS_Store
+.agents
+.claude
+.codex
+.forgeguard
