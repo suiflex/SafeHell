@@ -26,6 +26,22 @@ The script downloads the latest release binary for your platform, verifies it ag
 
 Prebuilt binaries cover Linux and macOS on x86_64 and aarch64, and Windows on x86_64. Windows users should download `safeshell-windows-x86_64.exe` from the [releases page](https://github.com/badrus123/SafeShell/releases) directly.
 
+### Update
+
+Update the installed binary without changing the vault, project configuration, or agent integrations:
+
+```sh
+safeshell update
+```
+
+To install a specific release tag:
+
+```sh
+safeshell update --version v0.1.0-alpha.1
+```
+
+The update downloads the official installer and verifies the binary against the release `SHA256SUMS` before replacing the installed executable.
+
 ### From source
 
 Rust 1.85 or newer is required.
@@ -94,11 +110,16 @@ Commands are non-interactive: no remote PTY, file transfer, port forwarding, or 
 With the corresponding agent CLI installed:
 
 ```sh
+# Run from the project root; this is project-local by default.
 safeshell integrate install codex
 safeshell integrate install claude
+
+# Optional: install for every project.
+safeshell integrate install --global codex
+safeshell integrate install --global claude
 ```
 
-This registers the stdio MCP server and installs a global `PreToolUse` guard for direct `ssh`, `scp`, `sftp`, `sshpass`, and `rsync` calls in SafeShell projects. Existing JSON settings are backed up before modification. The MCP server exposes only:
+By default, this registers the stdio MCP server and installs the `PreToolUse` guard in the current project. Use `--global` explicitly to install it for every project. The guard blocks direct `ssh`, `scp`, `sftp`, `sshpass`, and `rsync` calls. Existing JSON settings are backed up before modification. The MCP server exposes only:
 
 - `list_servers`
 - `execute` (write/destructive capable; still requires broker approval)

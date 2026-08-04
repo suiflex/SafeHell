@@ -8,15 +8,26 @@ use serde_json::{Value, json};
 
 use crate::{Agent, config, executable};
 
-pub fn install(agent: Agent) -> Result<()> {
+pub fn install(agent: Agent, global: bool) -> Result<()> {
     let executable = executable()?;
-    register_mcp(agent, &executable)?;
-    let (path, hook_agent) = match agent {
-        Agent::Codex => (home()?.join(".codex/hooks.json"), "codex"),
-        Agent::Claude => (home()?.join(".claude/settings.json"), "claude"),
+    let project = if global {
+        None
+    } else {
+        Some(std::env::current_dir()?)
     };
+    register_mcp(agent, &executable, global, project.as_deref())?;
+    let (path, hook_agent) = (
+        config_path(agent, global, project.as_deref())?,
+        match agent {
+            Agent::Codex => "codex",
+            Agent::Claude => "claude",
+        },
+    );
     install_hook(&path, &executable, hook_agent)?;
-    println!("Installed SafeShell MCP and hook integration");
+    println!(
+        "Installed SafeShell MCP and hook integration ({})",
+        if global { "global" } else { "project" }
+    );
     Ok(())
 }
 
@@ -48,25 +59,27 @@ pub fn hook(_agent: Agent) -> Result<()> {
     Ok(())
 }
 
-fn register_mcp(agent: Agent, executable: &Path) -> Result<()> {
+fn register_mcp(
+    agent: Agent,
+    executable: &Path,
+    global: bool,
+    project: Option<&Path>,
+) -> Result<()> {
     let mut command = match agent {
         Agent::Codex => {
             let mut command = Command::new("codex");
+            if let Some(project) = project {
+                command.current_dir(project);
+                command.env("CODEX_HOME", project.join(".codex"));
+            }
             command.args(["mcp", "add", "safeshell", "--"]);
             command
         }
         Agent::Claude => {
             let mut command = Command::new("claude");
-            command.args([
-                "mcp",
-                "add",
-                "--transport",
-                "stdio",
-                "--scope",
-                "user",
-                "safeshell",
-                "--",
-            ]);
+            command.args(["mcp", "add", "--transport", "stdio"]);
+            command.args(["--scope", if global { "user" } else { "local" }]);
+            command.args(["safeshell", "--"]);
             command
         }
     };
@@ -79,6 +92,21 @@ fn register_mcp(agent: Agent, executable: &Path) -> Result<()> {
         bail!("agent CLI failed to register the SafeShell MCP server");
     }
     Ok(())
+}
+
+fn config_path(agent: Agent, global: bool, project: Option<&Path>) -> Result<PathBuf> {
+    if !global {
+        return Ok(project
+            .context("project directory is required for local integration")?
+            .join(match agent {
+                Agent::Codex => ".codex/hooks.json",
+                Agent::Claude => ".claude/settings.json",
+            }));
+    }
+    Ok(match agent {
+        Agent::Codex => home()?.join(".codex/hooks.json"),
+        Agent::Claude => home()?.join(".claude/settings.json"),
+    })
 }
 
 fn install_hook(path: &Path, executable: &Path, agent: &str) -> Result<()> {

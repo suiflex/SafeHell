@@ -5,6 +5,7 @@ mod ipc;
 mod mcp;
 mod remote;
 mod security;
+mod update;
 mod vault;
 
 use std::path::PathBuf;
@@ -25,6 +26,12 @@ enum Command {
     Setup,
     /// Create a local, git-ignored project configuration.
     Init,
+    /// Update SafeShell while preserving vault, project, and agent configuration.
+    Update {
+        /// Release tag to install; defaults to the latest published release.
+        #[arg(long)]
+        version: Option<String>,
+    },
     /// Manage servers in the current project.
     Server {
         #[command(subcommand)]
@@ -42,7 +49,7 @@ enum Command {
     },
     /// Run the Model Context Protocol stdio adapter.
     Mcp,
-    /// Install global agent integration.
+    /// Install project-local agent integration (use --global for user-wide integration).
     Integrate {
         #[command(subcommand)]
         command: IntegrateCommand,
@@ -78,7 +85,12 @@ enum AuthArg {
 
 #[derive(Subcommand)]
 enum IntegrateCommand {
-    Install { agent: Agent },
+    Install {
+        /// Install into the user's global agent configuration.
+        #[arg(long)]
+        global: bool,
+        agent: Agent,
+    },
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -92,6 +104,7 @@ async fn main() -> Result<()> {
     match Cli::parse().command {
         Command::Setup => vault::setup(),
         Command::Init => config::init_project(&std::env::current_dir()?),
+        Command::Update { version } => update::run(version.as_deref()),
         Command::Server { command } => run_server_command(command),
         Command::Serve => broker::serve().await,
         Command::Exec {
@@ -124,8 +137,8 @@ async fn main() -> Result<()> {
         }
         Command::Mcp => mcp::run().await,
         Command::Integrate {
-            command: IntegrateCommand::Install { agent },
-        } => integrations::install(agent),
+            command: IntegrateCommand::Install { global, agent },
+        } => integrations::install(agent, global),
         Command::Hook { agent } => integrations::hook(agent),
     }
 }
