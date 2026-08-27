@@ -282,9 +282,7 @@ async fn start(
     {
         let mut jobs = state.jobs.lock().expect("job registry poisoned");
         jobs.push((job_id.clone(), Arc::clone(&sink)));
-        while jobs.len() > MAX_JOBS {
-            jobs.remove(0);
-        }
+        evict(&mut jobs);
     }
     let server = project.config.servers[alias].clone();
     let limits = project.config.limits.clone();
@@ -313,6 +311,31 @@ async fn start(
     Ok(ipc::Response::Started { job_id })
 }
 
+/// Trim the registry to `MAX_JOBS`, dropping the oldest finished job first: a
+/// running one still has a poller waiting for output nothing else can recover.
+fn evict(jobs: &mut Vec<(String, Arc<Mutex<remote::Output>>)>) {
+    while jobs.len() > MAX_JOBS {
+        let victim = jobs
+            .iter()
+            .position(|(_, sink)| sink.lock().expect("job sink poisoned").finished)
+            .unwrap_or(0);
+        jobs.remove(victim);
+    }
+}
+
+/// Read from `offset`, rounding down to a character boundary. A stale or
+/// mid-character offset must not make output disappear.
+fn from(text: &str, offset: usize) -> &str {
+    if offset >= text.len() {
+        return "";
+    }
+    let mut start = offset;
+    while start > 0 && !text.is_char_boundary(start) {
+        start -= 1;
+    }
+    &text[start..]
+}
+
 fn poll(
     job_id: &str,
     stdout_offset: usize,
@@ -333,8 +356,8 @@ fn poll(
     Ok(ipc::Response::Progress {
         job_id: job_id.to_string(),
         running: !finished,
-        stdout: stdout.get(stdout_offset..).unwrap_or_default().to_string(),
-        stderr: stderr.get(stderr_offset..).unwrap_or_default().to_string(),
+        stdout: from(stdout, stdout_offset).to_string(),
+        stderr: from(stderr, stderr_offset).to_string(),
         stdout_offset: stdout.len(),
         stderr_offset: stderr.len(),
         exit_status: output.exit_status,
@@ -655,6 +678,33 @@ mod tests {
         assert!(!approves("\n"));
         assert!(!approves("n\n"));
         assert!(!approves("yeah\n"));
+    }
+
+    #[test]
+    fn eviction_drops_finished_jobs_before_running_ones() {
+        let mut jobs: Vec<(String, Arc<Mutex<remote::Output>>)> = (0..MAX_JOBS + 1)
+            .map(|index| {
+                let output = remote::Output {
+                    // Only the first job is still running.
+                    finished: index != 0,
+                    ..remote::Output::default()
+                };
+                (index.to_string(), Arc::new(Mutex::new(output)))
+            })
+            .collect();
+        evict(&mut jobs);
+        assert_eq!(jobs.len(), MAX_JOBS);
+        assert_eq!(jobs[0].0, "0", "the running job must survive eviction");
+        assert!(!jobs.iter().any(|(id, _)| id == "1"));
+    }
+
+    #[test]
+    fn reading_from_an_offset_never_loses_output() {
+        assert_eq!(from("abcdef", 3), "def");
+        assert_eq!(from("abc", 3), "");
+        assert_eq!(from("abc", 99), "");
+        // "é" is two bytes; an offset landing inside it rounds back.
+        assert_eq!(from("aébc", 2), "ébc");
     }
 
     #[test]

@@ -144,7 +144,12 @@ poll   -> status: finished, exit_status: 0, "line2\nline3"
 Pass the previous `stdout_offset` and `stderr_offset` back to `poll` to read only
 what is new. A partial trailing line, and anything after an unterminated
 `-----BEGIN` key header, is withheld until the job finishes, so redaction is never
-applied to half a secret. The broker keeps the last 16 jobs.
+applied to half a secret. The broker keeps the last 16 jobs and evicts finished
+ones first.
+
+A background job is still bounded by `timeout_seconds`, so raise that limit (up to
+10 minutes) for work that needs it rather than expecting `start` to run forever.
+`docker logs -f` and other endless commands are cut at the timeout.
 
 `get_file` and `put_file` move a file through the same approval gate. What the
 operator sees is the real remote command (`head -c N -- '<path>' | base64` or
