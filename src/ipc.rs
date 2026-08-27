@@ -28,12 +28,58 @@ pub enum Request {
         /// Keep only the last N lines of each stream, cut inside the broker.
         max_lines: Option<usize>,
     },
+    /// Approve now, run in the background, read the output with `Poll`.
+    Start {
+        project: PathBuf,
+        alias: String,
+        command: String,
+        reason: Option<String>,
+    },
+    Poll {
+        job_id: String,
+        stdout_offset: usize,
+        stderr_offset: usize,
+    },
+    Get {
+        project: PathBuf,
+        alias: String,
+        remote_path: String,
+        local_path: PathBuf,
+        reason: Option<String>,
+    },
+    Put {
+        project: PathBuf,
+        alias: String,
+        local_path: PathBuf,
+        remote_path: String,
+        reason: Option<String>,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum Response {
     Executed(ExecutionResult),
+    Started {
+        job_id: String,
+    },
+    /// Output produced since the offsets the caller asked from.
+    Progress {
+        job_id: String,
+        running: bool,
+        stdout: String,
+        stderr: String,
+        stdout_offset: usize,
+        stderr_offset: usize,
+        exit_status: Option<i32>,
+        truncated: bool,
+        error: Option<String>,
+    },
+    Transferred {
+        path: String,
+        bytes: usize,
+        sha256: String,
+    },
     /// The command did not run. `retry_after_seconds` separates "never do this
     /// again" from "the same request may succeed later".
     Denied {

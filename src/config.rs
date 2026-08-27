@@ -13,6 +13,7 @@ pub const MAX_OUTPUT_BYTES: usize = 10 * 1024 * 1024;
 pub const MAX_APPROVAL_TIMEOUT_SECONDS: u64 = 3600;
 pub const MAX_APPROVAL_TTL_SECONDS: u64 = 3600;
 pub const MAX_DEDUP_SECONDS: u64 = 3600;
+pub const MAX_TRANSFER_BYTES: usize = 10 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -44,6 +45,9 @@ pub struct Limits {
     /// How long a manual approval keeps covering the exact same command.
     #[serde(default = "default_approval_ttl")]
     pub approval_ttl_seconds: u64,
+    /// Largest file `get_file` and `put_file` will move in one request.
+    #[serde(default = "default_transfer_bytes")]
+    pub max_transfer_bytes: usize,
 }
 
 impl Default for Limits {
@@ -55,6 +59,7 @@ impl Default for Limits {
             max_commands_per_hour: default_commands_per_hour(),
             dedup_seconds: default_dedup(),
             approval_ttl_seconds: default_approval_ttl(),
+            max_transfer_bytes: default_transfer_bytes(),
         }
     }
 }
@@ -188,6 +193,9 @@ fn validate(config: &ProjectConfig) -> Result<()> {
     if config.limits.dedup_seconds > MAX_DEDUP_SECONDS {
         bail!("dedup_seconds must be at most {MAX_DEDUP_SECONDS}");
     }
+    if !(1..=MAX_TRANSFER_BYTES).contains(&config.limits.max_transfer_bytes) {
+        bail!("max_transfer_bytes must be between 1 and {MAX_TRANSFER_BYTES}");
+    }
     for (alias, server) in &config.servers {
         validate_alias(alias)?;
         if server.host.trim().is_empty() || server.username.trim().is_empty() {
@@ -282,6 +290,9 @@ const fn default_dedup() -> u64 {
 }
 const fn default_approval_ttl() -> u64 {
     300
+}
+const fn default_transfer_bytes() -> usize {
+    1024 * 1024
 }
 
 #[cfg(test)]

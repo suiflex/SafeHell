@@ -78,6 +78,7 @@ approval_timeout_seconds = 120
 max_commands_per_hour = 60
 dedup_seconds = 10
 approval_ttl_seconds = 300
+max_transfer_bytes = 1048576
 
 [servers.staging]
 host = "staging.example.com"
@@ -128,6 +129,31 @@ safeshell exec prod --max-lines 60 -- "docker logs --tail 2000 engine-trade"
 `exec` exits `3` when the broker refuses a command, separately from a transport
 failure, so a wrapper can tell "denied" from "the broker is down".
 
+## Long commands and file transfer
+
+`execute` blocks until the command finishes. For anything slow, `start` returns a
+`job_id` as soon as the request is approved, and `poll` reads what has been
+produced so far:
+
+```
+start  -> job_id
+poll   -> status: running, stdout_offset: 6, "line1"
+poll   -> status: finished, exit_status: 0, "line2\nline3"
+```
+
+Pass the previous `stdout_offset` and `stderr_offset` back to `poll` to read only
+what is new. A partial trailing line, and anything after an unterminated
+`-----BEGIN` key header, is withheld until the job finishes, so redaction is never
+applied to half a secret. The broker keeps the last 16 jobs.
+
+`get_file` and `put_file` move a file through the same approval gate. What the
+operator sees is the real remote command (`head -c N -- '<path>' | base64` or
+`base64 -d > '<path>'`), so `autoapprove` patterns apply to transfers too. The
+local side of a transfer must stay inside the project directory, and
+`max_transfer_bytes` caps both directions. Transfers return only the path, size,
+and SHA-256: content lands on disk instead of in the agent's context, and is not
+redacted, so treat an approved transfer as handing over the file.
+
 ## Audit
 
 Every decision, including refusals, is appended to a `0600` JSON Lines file:
@@ -138,14 +164,15 @@ safeshell audit --tail 50
 
 Each entry carries the timestamp, project id, alias, SHA-256 of the command, the
 outcome (`approved`, `auto-approved`, `ttl-approved`, `denied`, `blocked`,
-`duplicate`, `throttled`, `expired`, `unattended`, `executed`, `failed`), the
-duration, and the exit status. Command text is hashed rather than stored.
+`duplicate`, `throttled`, `expired`, `unattended`, `executed`, `failed`,
+`transferred`, `transfer-failed`), the duration, and the exit status. Command
+text is hashed rather than stored.
 
 Pass the remote command as one quoted shell string so its quoting and operators are preserved exactly.
 
 The broker shows the project, endpoint, command, and reason. It decrypts a password only after approval. The first connection to an unknown host also shows its key fingerprint and asks whether to trust it.
 
-Commands are non-interactive: no remote PTY, file transfer, port forwarding, or private-key-file mode is provided in this alpha.
+Commands are non-interactive: no remote PTY, port forwarding, or private-key-file mode is provided in this alpha.
 
 The host-key trust question is the one prompt `approval_timeout_seconds` does not
 cover, so make the first connection to a new host from an attended broker. In
@@ -170,6 +197,8 @@ By default, this registers the stdio MCP server and installs the `PreToolUse` gu
 
 - `list_servers`
 - `execute` (write/destructive capable; still requires broker approval)
+- `start` and `poll` for long commands
+- `get_file` and `put_file`, capped by `max_transfer_bytes`
 
 The hook does not rewrite commands and cannot prevent all bypasses. Agent policies should still restrict arbitrary shell execution where stronger isolation is required.
 

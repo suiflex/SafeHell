@@ -8,6 +8,7 @@ description = "Approval-gated SSH broker for AI coding agents"
 [dependencies]
 age = "0.11.1"
 anyhow = "1.0"
+base64 = "0.23"
 clap = { version = "4.5", features = ["derive"] }
 directories = "6.0"
 interprocess = { version = "2.4.3", features = ["tokio"] }

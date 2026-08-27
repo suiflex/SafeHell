@@ -14,8 +14,32 @@ pub fn redact(input: &[u8], exact_secrets: &[&str]) -> String {
     output
 }
 
+/// How much of a growing buffer is safe to hand out before it is complete.
+///
+/// A secret can straddle a chunk boundary, so a partial last line is withheld,
+/// and so is everything from an unterminated private-key header onwards.
+pub fn releasable(text: &str, finished: bool) -> &str {
+    let limit = if finished {
+        text.len()
+    } else {
+        match text.rfind('\n') {
+            Some(index) => index + 1,
+            None => 0,
+        }
+    };
+    let head = &text[..limit];
+    match head.rfind("-----BEGIN") {
+        Some(index) if !head[index..].contains("-----END") => &head[..index],
+        _ => head,
+    }
+}
+
 pub fn command_hash(command: &str) -> String {
-    let digest = Sha256::digest(command.as_bytes());
+    bytes_hash(command.as_bytes())
+}
+
+pub fn bytes_hash(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
     digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
@@ -50,6 +74,17 @@ mod tests {
         assert!(!output.contains("xyz"));
         assert!(!output.contains(":p@"));
         assert!(output.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn releasable_withholds_partial_lines_and_open_key_blocks() {
+        assert_eq!(releasable("a\nb\npart", false), "a\nb\n");
+        assert_eq!(releasable("a\nb\npart", true), "a\nb\npart");
+        assert_eq!(releasable("log\n-----BEGIN KEY\nx\n", false), "log\n");
+        assert_eq!(
+            releasable("log\n-----BEGIN KEY\nx\n-----END KEY\n", false),
+            "log\n-----BEGIN KEY\nx\n-----END KEY\n"
+        );
     }
 
     #[test]

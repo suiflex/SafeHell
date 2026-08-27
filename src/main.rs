@@ -161,6 +161,7 @@ async fn main() -> Result<()> {
                     std::process::exit(3);
                 }
                 ipc::Response::Error { message } => bail!(message),
+                other => bail!("unexpected broker response: {other:?}"),
             }
         }
         Command::Audit { tail } => print_audit(tail),
