@@ -3,6 +3,7 @@ mod config;
 mod integrations;
 mod ipc;
 mod mcp;
+mod policy;
 mod remote;
 mod security;
 mod update;
@@ -38,14 +39,28 @@ enum Command {
         command: ServerCommand,
     },
     /// Run the foreground approval broker.
-    Serve,
+    Serve {
+        /// Run unattended: allow-listed commands execute, anything that would
+        /// prompt is denied instead of waiting for an operator.
+        #[arg(long)]
+        yes: bool,
+    },
     /// Request an approved non-interactive remote command.
     Exec {
         alias: String,
         #[arg(long)]
         reason: Option<String>,
+        /// Keep only the last N lines of each output stream.
+        #[arg(long)]
+        max_lines: Option<usize>,
         #[arg(required = true, last = true)]
         command: String,
+    },
+    /// Show the append-only approval and execution log.
+    Audit {
+        /// Number of trailing entries to print.
+        #[arg(long, default_value_t = 20)]
+        tail: usize,
     },
     /// Run the Model Context Protocol stdio adapter.
     Mcp,
@@ -106,10 +121,11 @@ async fn main() -> Result<()> {
         Command::Init => config::init_project(&std::env::current_dir()?),
         Command::Update { version } => update::run(version.as_deref()),
         Command::Server { command } => run_server_command(command),
-        Command::Serve => broker::serve().await,
+        Command::Serve { yes } => broker::serve(yes).await,
         Command::Exec {
             alias,
             reason,
+            max_lines,
             command,
         } => {
             let project = config::discover(&std::env::current_dir()?)?;
@@ -118,6 +134,7 @@ async fn main() -> Result<()> {
                 alias,
                 command,
                 reason,
+                max_lines,
             })
             .await?;
             match response {
@@ -131,16 +148,44 @@ async fn main() -> Result<()> {
                     stderr.flush()?;
                     std::process::exit(result.exit_status.unwrap_or(255));
                 }
+                // Exit 3 marks a decision, not a failure, so scripts can tell
+                // "refused" apart from "the broker is down".
+                ipc::Response::Denied {
+                    reason,
+                    retry_after_seconds,
+                } => {
+                    eprintln!("denied: {reason}");
+                    if let Some(seconds) = retry_after_seconds {
+                        eprintln!("retry after {seconds}s");
+                    }
+                    std::process::exit(3);
+                }
                 ipc::Response::Error { message } => bail!(message),
-                other => bail!("unexpected broker response: {other:?}"),
             }
         }
+        Command::Audit { tail } => print_audit(tail),
         Command::Mcp => mcp::run().await,
         Command::Integrate {
             command: IntegrateCommand::Install { global, agent },
         } => integrations::install(agent, global),
         Command::Hook { agent } => integrations::hook(agent),
     }
+}
+
+fn print_audit(tail: usize) -> Result<()> {
+    let path = vault::audit_path()?;
+    if !path.exists() {
+        println!("no audit entries yet ({})", path.display());
+        return Ok(());
+    }
+    let raw = std::fs::read_to_string(&path)
+        .with_context(|| format!("cannot read {}", path.display()))?;
+    let lines: Vec<&str> = raw.lines().filter(|line| !line.trim().is_empty()).collect();
+    println!("{} ({} entries)", path.display(), lines.len());
+    for line in lines.iter().rev().take(tail).rev() {
+        println!("{line}");
+    }
+    Ok(())
 }
 
 fn run_server_command(command: ServerCommand) -> Result<()> {
@@ -210,6 +255,7 @@ fn run_server_command(command: ServerCommand) -> Result<()> {
                     port,
                     username,
                     auth,
+                    autoapprove: config::AutoApprove::default(),
                 },
             );
             if let Err(error) = config::save(&project.path, &cfg) {

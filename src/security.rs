@@ -24,8 +24,9 @@ fn patterns() -> &'static [Regex] {
     PATTERNS.get_or_init(|| {
         [
             r"(?i)(authorization\s*:\s*bearer\s+)[A-Za-z0-9._~+/-]+=*",
-            r#"(?i)((?:password|passwd|token|api[_-]?key|secret)\s*[=:]\s*)[^\s'\"]+"#,
+            r#"(?i)([A-Za-z0-9_]*(?:password|passwd|token|api[_-]?key|secret|url|uri|dsn)\s*[=:]\s*)[^\s'\",]+"#,
             r"(?i)([a-z][a-z0-9+.-]*://[^\s:/]+:)[^@\s]+@",
+            r"([^A-Za-z0-9]|^)AKIA[0-9A-Z]{16}",
             r"(?s)(-----BEGIN (?:OPENSSH |RSA |EC |DSA )?PRIVATE KEY-----).*?(-----END (?:OPENSSH |RSA |EC |DSA )?PRIVATE KEY-----)",
         ]
         .into_iter()
@@ -49,5 +50,16 @@ mod tests {
         assert!(!output.contains("xyz"));
         assert!(!output.contains(":p@"));
         assert!(output.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn redacts_container_env_and_cloud_keys() {
+        let output = redact(
+            b"-e DATABASE_URL=postgres://u:p@db/app AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE plain=keep",
+            &[],
+        );
+        assert!(!output.contains("postgres://u:p@db/app"));
+        assert!(!output.contains("AKIAIOSFODNN7EXAMPLE"));
+        assert!(output.contains("plain=keep"));
     }
 }

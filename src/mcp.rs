@@ -23,6 +23,10 @@ struct ExecuteInput {
     command: String,
     #[schemars(description = "Short explanation shown in the approval console")]
     reason: Option<String>,
+    #[schemars(
+        description = "Keep only the last N lines of stdout and stderr; the broker cuts before sending"
+    )]
+    max_lines: Option<usize>,
 }
 
 impl SafeShellMcp {
@@ -36,18 +40,37 @@ impl SafeShellMcp {
 
 #[tool_router]
 impl SafeShellMcp {
-    #[tool(description = "List configured SafeShell server aliases. Does not expose credentials.")]
+    #[tool(
+        description = "List configured SafeShell server aliases and their autoapprove rules. Reads the project config directly, so it works while the broker is down. Does not expose credentials."
+    )]
     async fn list_servers(&self) -> String {
-        response_text(
-            ipc::request(ipc::Request::ListServers {
-                project: self.project.clone(),
-            })
-            .await,
-        )
+        match config::discover(&self.project) {
+            Ok(project) if project.config.servers.is_empty() => {
+                "no servers configured; run `safeshell server add`".into()
+            }
+            Ok(project) => project
+                .config
+                .servers
+                .iter()
+                .map(|(alias, server)| {
+                    format!(
+                        "{alias}\t{}@{}:{}\t{}\tallow={:?} deny={:?}",
+                        server.username,
+                        server.host,
+                        server.port,
+                        server.auth.label(),
+                        server.autoapprove.allow,
+                        server.autoapprove.deny,
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n"),
+            Err(error) => format!("error: {error:#}"),
+        }
     }
 
     #[tool(
-        description = "Execute a non-interactive SSH command after explicit one-time user approval. This is a destructive/write-capable tool."
+        description = "Execute a non-interactive SSH command on a configured server. Commands outside autoapprove.allow wait for a human approval that expires, so a call can come back denied. This is a destructive/write-capable tool."
     )]
     async fn execute(&self, Parameters(input): Parameters<ExecuteInput>) -> String {
         response_text(
@@ -56,6 +79,7 @@ impl SafeShellMcp {
                 alias: input.alias,
                 command: input.command,
                 reason: input.reason,
+                max_lines: input.max_lines,
             })
             .await,
         )
@@ -84,10 +108,43 @@ pub async fn run() -> Result<()> {
     Ok(())
 }
 
+/// Plain text, because agents read logs far better than escaped JSON blobs.
 fn response_text(response: Result<ipc::Response>) -> String {
     match response {
-        Ok(value) => serde_json::to_string(&value)
-            .unwrap_or_else(|error| format!("{{\"error\":\"{error}\"}}")),
-        Err(error) => format!("error: {error:#}"),
+        Ok(ipc::Response::Executed(result)) => {
+            let mut text = format!(
+                "status: executed\nexit_status: {}\ntruncated: {}\n",
+                result
+                    .exit_status
+                    .map(|code| code.to_string())
+                    .unwrap_or_else(|| "unknown".into()),
+                result.truncated
+            );
+            text.push_str("--- stdout ---\n");
+            text.push_str(&result.stdout);
+            if !result.stdout.ends_with('\n') {
+                text.push('\n');
+            }
+            text.push_str("--- stderr ---\n");
+            text.push_str(&result.stderr);
+            text
+        }
+        Ok(ipc::Response::Denied {
+            reason,
+            retry_after_seconds,
+        }) => match retry_after_seconds {
+            Some(seconds) => format!(
+                "status: denied\nreason: {reason}\nretry_after_seconds: {seconds}\nThe command did not run. Wait at least {seconds}s before sending it again."
+            ),
+            None => format!(
+                "status: denied\nreason: {reason}\nThe command did not run. Do not retry it; ask the operator instead."
+            ),
+        },
+        Ok(ipc::Response::Error { message }) => format!(
+            "status: error\nmessage: {message}\nThis is a transport or broker failure, not a decision; retrying later may work."
+        ),
+        Err(error) => format!(
+            "status: error\nmessage: {error:#}\nThis is a transport or broker failure, not a decision; retrying later may work."
+        ),
     }
 }

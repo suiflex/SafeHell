@@ -10,6 +10,9 @@ use uuid::Uuid;
 pub const CONFIG_NAME: &str = ".safeshell.toml";
 pub const MAX_TIMEOUT_SECONDS: u64 = 600;
 pub const MAX_OUTPUT_BYTES: usize = 10 * 1024 * 1024;
+pub const MAX_APPROVAL_TIMEOUT_SECONDS: u64 = 3600;
+pub const MAX_APPROVAL_TTL_SECONDS: u64 = 3600;
+pub const MAX_DEDUP_SECONDS: u64 = 3600;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -29,6 +32,18 @@ pub struct Limits {
     pub timeout_seconds: u64,
     #[serde(default = "default_output")]
     pub max_output_bytes: usize,
+    /// How long the broker waits for a human decision before denying the request.
+    #[serde(default = "default_approval_timeout")]
+    pub approval_timeout_seconds: u64,
+    /// Upper bound on executed commands per rolling hour, across all servers.
+    #[serde(default = "default_commands_per_hour")]
+    pub max_commands_per_hour: u32,
+    /// Window in which an identical command is rejected instead of run again.
+    #[serde(default = "default_dedup")]
+    pub dedup_seconds: u64,
+    /// How long a manual approval keeps covering the exact same command.
+    #[serde(default = "default_approval_ttl")]
+    pub approval_ttl_seconds: u64,
 }
 
 impl Default for Limits {
@@ -36,6 +51,10 @@ impl Default for Limits {
         Self {
             timeout_seconds: default_timeout(),
             max_output_bytes: default_output(),
+            approval_timeout_seconds: default_approval_timeout(),
+            max_commands_per_hour: default_commands_per_hour(),
+            dedup_seconds: default_dedup(),
+            approval_ttl_seconds: default_approval_ttl(),
         }
     }
 }
@@ -48,6 +67,18 @@ pub struct Server {
     pub port: u16,
     pub username: String,
     pub auth: Auth,
+    #[serde(default)]
+    pub autoapprove: AutoApprove,
+}
+
+/// Command patterns that may skip the manual prompt. `deny` always wins.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AutoApprove {
+    #[serde(default)]
+    pub allow: Vec<String>,
+    #[serde(default)]
+    pub deny: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -145,6 +176,18 @@ fn validate(config: &ProjectConfig) -> Result<()> {
     if !(1024..=MAX_OUTPUT_BYTES).contains(&config.limits.max_output_bytes) {
         bail!("max_output_bytes must be between 1024 and {MAX_OUTPUT_BYTES}");
     }
+    if !(1..=MAX_APPROVAL_TIMEOUT_SECONDS).contains(&config.limits.approval_timeout_seconds) {
+        bail!("approval_timeout_seconds must be between 1 and {MAX_APPROVAL_TIMEOUT_SECONDS}");
+    }
+    if config.limits.max_commands_per_hour == 0 {
+        bail!("max_commands_per_hour must be at least 1");
+    }
+    if config.limits.approval_ttl_seconds > MAX_APPROVAL_TTL_SECONDS {
+        bail!("approval_ttl_seconds must be at most {MAX_APPROVAL_TTL_SECONDS}");
+    }
+    if config.limits.dedup_seconds > MAX_DEDUP_SECONDS {
+        bail!("dedup_seconds must be at most {MAX_DEDUP_SECONDS}");
+    }
     for (alias, server) in &config.servers {
         validate_alias(alias)?;
         if server.host.trim().is_empty() || server.username.trim().is_empty() {
@@ -152,6 +195,23 @@ fn validate(config: &ProjectConfig) -> Result<()> {
         }
         if server.port == 0 {
             bail!("server {alias} has invalid port 0");
+        }
+        if server
+            .autoapprove
+            .allow
+            .iter()
+            .chain(&server.autoapprove.deny)
+            .any(|pattern| pattern.trim().is_empty())
+        {
+            bail!("server {alias} has an empty autoapprove pattern");
+        }
+        if server
+            .autoapprove
+            .allow
+            .iter()
+            .any(|pattern| pattern == "*")
+        {
+            bail!("server {alias} cannot allow the '*' pattern; list explicit commands");
         }
     }
     Ok(())
@@ -211,6 +271,18 @@ const fn default_output() -> usize {
 const fn default_port() -> u16 {
     22
 }
+const fn default_approval_timeout() -> u64 {
+    120
+}
+const fn default_commands_per_hour() -> u32 {
+    60
+}
+const fn default_dedup() -> u64 {
+    10
+}
+const fn default_approval_ttl() -> u64 {
+    300
+}
 
 #[cfg(test)]
 mod tests {
@@ -242,6 +314,34 @@ type = "ssh-agent"
             servers: BTreeMap::new(),
         };
         cfg.limits.timeout_seconds = 0;
+        assert!(validate(&cfg).is_err());
+    }
+
+    #[test]
+    fn rejects_blanket_autoapprove_and_out_of_range_windows() {
+        let mut cfg = ProjectConfig {
+            version: 1,
+            project_id: Uuid::nil(),
+            limits: Limits::default(),
+            servers: BTreeMap::new(),
+        };
+        cfg.servers.insert(
+            "prod".into(),
+            Server {
+                host: "example.com".into(),
+                port: 22,
+                username: "deploy".into(),
+                auth: Auth::SshAgent,
+                autoapprove: AutoApprove {
+                    allow: vec!["*".into()],
+                    deny: Vec::new(),
+                },
+            },
+        );
+        assert!(validate(&cfg).is_err());
+        cfg.servers.get_mut("prod").unwrap().autoapprove.allow = vec!["docker logs *".into()];
+        assert!(validate(&cfg).is_ok());
+        cfg.limits.dedup_seconds = MAX_DEDUP_SECONDS + 1;
         assert!(validate(&cfg).is_err());
     }
 }

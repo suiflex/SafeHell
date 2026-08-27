@@ -9,9 +9,10 @@ SafeShell is a local approval broker for SSH commands requested by AI coding age
 - SafeShell never places stored passwords in `.safeshell.toml`, CLI arguments, MCP schemas, or audit logs; literal password values are redacted from buffered agent-facing output.
 - The vault is encrypted with an age X25519 identity stored in the operating-system credential store.
 - Password credentials are bound to an exact host, port, and username.
-- Every command needs a one-time `y` approval in `safeshell serve`.
+- Every command needs a one-time `y` approval in `safeshell serve`, except commands the project explicitly lists under `autoapprove.allow`.
+- Commands matching `autoapprove.deny` are refused before any approval path, in both attended and unattended mode.
 - SSH host keys are checked against SafeShell's own `known_hosts`; changed keys are rejected.
-- Command output is buffered, bounded, and redacted before it is returned to the caller.
+- Command output is buffered, bounded, and redacted before it is returned to the caller. Redaction covers bearer tokens, private-key blocks, `scheme://user:pass@` URLs, AWS access key ids, and `*_URL`/`*_TOKEN`/`*_SECRET`-style assignments, so container environment dumps lose their values as well as their secrets.
 
 SafeShell does not sandbox the remote shell. Output redaction and agent hooks are defense-in-depth, not guarantees against every possible secret representation or bypass by another local process running as your user.
 
@@ -73,6 +74,10 @@ project_id = "1ef6c562-8c64-499e-a798-f74248d8ca04"
 [limits]
 timeout_seconds = 60
 max_output_bytes = 1048576
+approval_timeout_seconds = 120
+max_commands_per_hour = 60
+dedup_seconds = 10
+approval_ttl_seconds = 300
 
 [servers.staging]
 host = "staging.example.com"
@@ -81,9 +86,25 @@ username = "deploy"
 
 [servers.staging.auth]
 type = "ssh-agent"
+
+[servers.staging.autoapprove]
+allow = ["docker logs *", "docker ps*", "docker inspect -f *", "systemctl status *", "df -h"]
+deny = ["rm *", "dd *", "mkfs*", "docker rm *", "docker run *", "chown *", "* > *", "curl *| *sh"]
 ```
 
 Limits are capped at 10 minutes and 10 MiB. Unknown config fields are rejected, so fields such as `password`, `secret`, and `private_key` cannot be smuggled into a server entry.
+
+### Approval rules
+
+Patterns use `*` as the only wildcard and are matched against the whole command string.
+
+| Command matches | Result |
+| --- | --- |
+| `autoapprove.deny` | refused immediately, no prompt, never worth retrying |
+| `autoapprove.allow` | runs without a prompt |
+| neither | waits for `y` in the broker terminal, up to `approval_timeout_seconds` |
+
+`allow = ["*"]` is rejected: automatic approval always has to name the commands it covers. An approval keeps covering the byte-identical command for `approval_ttl_seconds`, an identical command inside `dedup_seconds` is refused instead of run twice, and the broker stops executing once `max_commands_per_hour` is reached.
 
 ## Run
 
@@ -93,17 +114,43 @@ Keep the broker visible in its own terminal:
 safeshell serve
 ```
 
+`safeshell serve --yes` runs the broker unattended: allow-listed commands still
+execute, and anything that would need a prompt is denied instead of waiting.
+Every decision is recorded in the audit log.
+
 Then request a command from the project:
 
 ```sh
 safeshell exec prod --reason "check deployment" -- "systemctl status my-app"
+safeshell exec prod --max-lines 60 -- "docker logs --tail 2000 engine-trade"
 ```
+
+`exec` exits `3` when the broker refuses a command, separately from a transport
+failure, so a wrapper can tell "denied" from "the broker is down".
+
+## Audit
+
+Every decision, including refusals, is appended to a `0600` JSON Lines file:
+
+```sh
+safeshell audit --tail 50
+```
+
+Each entry carries the timestamp, project id, alias, SHA-256 of the command, the
+outcome (`approved`, `auto-approved`, `ttl-approved`, `denied`, `blocked`,
+`duplicate`, `throttled`, `expired`, `unattended`, `executed`, `failed`), the
+duration, and the exit status. Command text is hashed rather than stored.
 
 Pass the remote command as one quoted shell string so its quoting and operators are preserved exactly.
 
 The broker shows the project, endpoint, command, and reason. It decrypts a password only after approval. The first connection to an unknown host also shows its key fingerprint and asks whether to trust it.
 
 Commands are non-interactive: no remote PTY, file transfer, port forwarding, or private-key-file mode is provided in this alpha.
+
+The host-key trust question is the one prompt `approval_timeout_seconds` does not
+cover, so make the first connection to a new host from an attended broker. In
+unattended mode that prompt has nobody to answer it and the request only ends
+when `timeout_seconds` elapses.
 
 ## Codex and Claude Code
 

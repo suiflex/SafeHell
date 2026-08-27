@@ -20,30 +20,29 @@ const MAX_RESPONSE_BYTES: usize = 11 * 1024 * 1024;
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "method", rename_all = "snake_case")]
 pub enum Request {
-    ListServers {
-        project: PathBuf,
-    },
     Execute {
         project: PathBuf,
         alias: String,
         command: String,
         reason: Option<String>,
+        /// Keep only the last N lines of each stream, cut inside the broker.
+        max_lines: Option<usize>,
     },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum Response {
-    Servers { servers: Vec<ServerSummary> },
     Executed(ExecutionResult),
-    Error { message: String },
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ServerSummary {
-    pub alias: String,
-    pub endpoint: String,
-    pub auth: String,
+    /// The command did not run. `retry_after_seconds` separates "never do this
+    /// again" from "the same request may succeed later".
+    Denied {
+        reason: String,
+        retry_after_seconds: Option<u64>,
+    },
+    Error {
+        message: String,
+    },
 }
 
 pub async fn request(request: Request) -> Result<Response> {
@@ -119,6 +118,7 @@ mod tests {
             alias: "prod".into(),
             command: "x".repeat(MAX_REQUEST_BYTES),
             reason: None,
+            max_lines: None,
         };
         assert!(serde_json::to_vec(&request).unwrap().len() > MAX_REQUEST_BYTES);
     }

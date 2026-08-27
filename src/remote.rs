@@ -53,14 +53,39 @@ impl client::Handler for HostVerifier {
     }
 }
 
-pub async fn execute(server: &Server, limits: &Limits, command: &str) -> Result<ExecutionResult> {
+pub async fn execute(
+    server: &Server,
+    limits: &Limits,
+    command: &str,
+    max_lines: Option<usize>,
+) -> Result<ExecutionResult> {
     let timeout = Duration::from_secs(limits.timeout_seconds);
-    tokio::time::timeout(
+    let mut result = tokio::time::timeout(
         timeout,
         execute_inner(server, limits.max_output_bytes, command),
     )
     .await
-    .context("remote command timed out")?
+    .context("remote command timed out")??;
+    if let Some(limit) = max_lines {
+        let (stdout, cut_out) = tail(&result.stdout, limit);
+        let (stderr, cut_err) = tail(&result.stderr, limit);
+        result.stdout = stdout;
+        result.stderr = stderr;
+        result.truncated |= cut_out || cut_err;
+    }
+    Ok(result)
+}
+
+/// Keep the last `limit` lines; the broker cuts before the response is sent.
+fn tail(text: &str, limit: usize) -> (String, bool) {
+    if limit == 0 {
+        return (String::new(), !text.is_empty());
+    }
+    let lines: Vec<&str> = text.lines().collect();
+    if lines.len() <= limit {
+        return (text.to_string(), false);
+    }
+    (lines[lines.len() - limit..].join("\n"), true)
 }
 
 async fn execute_inner(
@@ -195,6 +220,13 @@ fn append_bounded(target: &mut Vec<u8>, bytes: &[u8], remaining: usize, truncate
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tail_keeps_the_last_lines_only() {
+        assert_eq!(tail("a\nb\nc", 2), ("b\nc".into(), true));
+        assert_eq!(tail("a\nb", 5), ("a\nb".into(), false));
+        assert_eq!(tail("a\nb", 0), (String::new(), true));
+    }
 
     #[test]
     fn output_is_bounded() {
