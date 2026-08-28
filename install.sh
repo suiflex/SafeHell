@@ -35,6 +35,13 @@ detect_asset() {
 	*) err "unsupported operating system: $os" ;;
 	esac
 
+	# Under Rosetta, uname reports x86_64 on Apple Silicon, which would install
+	# the translated binary and keep reinstalling it on every later update.
+	if [ "$os" = macos ] && [ "$arch" = x86_64 ] &&
+		[ "$(sysctl -n hw.optional.arm64 2>/dev/null || echo 0)" = 1 ]; then
+		arch=arm64
+	fi
+
 	case "$arch" in
 	x86_64 | amd64) arch=x86_64 ;;
 	aarch64 | arm64) arch=aarch64 ;;

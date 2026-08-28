@@ -35,14 +35,19 @@ grep -q '^main "\$@"$' "$script" || { echo "install.sh no longer ends with main 
 # shellcheck source=/dev/null
 . "$work/lib.sh"
 
-# Stub uname so detect_asset can be driven across platforms.
+# Stub uname and sysctl so detect_asset can be driven across platforms.
 uname() { if [ "$1" = "-s" ]; then echo "$T_OS"; else echo "$T_ARCH"; fi; }
+sysctl() { echo "${T_ARM64:-0}"; }
 
+T_ARM64=0
 T_OS=Linux T_ARCH=x86_64 && check "linux/x86_64" "$(detect_asset)" "safeshell-linux-x86_64"
 T_OS=Linux T_ARCH=amd64 && check "linux/amd64" "$(detect_asset)" "safeshell-linux-x86_64"
 T_OS=Linux T_ARCH=aarch64 && check "linux/aarch64" "$(detect_asset)" "safeshell-linux-aarch64"
 T_OS=Darwin T_ARCH=arm64 && check "darwin/arm64" "$(detect_asset)" "safeshell-macos-aarch64"
 T_OS=Darwin T_ARCH=x86_64 && check "darwin/x86_64" "$(detect_asset)" "safeshell-macos-x86_64"
+T_OS=Darwin T_ARCH=x86_64 T_ARM64=1 &&
+	check "darwin/rosetta" "$(detect_asset)" "safeshell-macos-aarch64"
+T_ARM64=0
 T_OS=Linux T_ARCH=riscv64 &&
 	check "rejects unknown arch" "$(detect_asset 2>&1 || true)" "safeshell: unsupported architecture: riscv64"
 T_OS=Plan9 T_ARCH=x86_64 &&
