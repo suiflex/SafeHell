@@ -27,7 +27,7 @@ enum Command {
     Setup,
     /// Create a local, git-ignored project configuration.
     Init,
-    /// Update SafeShell while preserving vault, project, and agent configuration.
+    /// Update SafeHell while preserving vault, project, and agent configuration.
     Update {
         /// Release tag to install; defaults to the latest published release.
         #[arg(long)]
@@ -276,5 +276,5 @@ fn run_server_command(command: ServerCommand) -> Result<()> {
 }
 
 fn executable() -> Result<PathBuf> {
-    std::env::current_exe().context("cannot locate safeshell executable")
+    std::env::current_exe().context("cannot locate safehell executable")
 }

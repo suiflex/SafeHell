@@ -10,14 +10,14 @@ use serde::Deserialize;
 use crate::{config, ipc};
 
 #[derive(Debug, Clone)]
-struct SafeShellMcp {
+struct SafeHellMcp {
     tool_router: ToolRouter<Self>,
     project: std::path::PathBuf,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct ExecuteInput {
-    #[schemars(description = "Server alias from .safeshell.toml")]
+    #[schemars(description = "Server alias from .safehell.toml")]
     alias: String,
     #[schemars(description = "Non-interactive shell command to execute remotely")]
     command: String,
@@ -31,7 +31,7 @@ struct ExecuteInput {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct StartInput {
-    #[schemars(description = "Server alias from .safeshell.toml")]
+    #[schemars(description = "Server alias from .safehell.toml")]
     alias: String,
     #[schemars(description = "Non-interactive shell command to execute remotely")]
     command: String,
@@ -51,7 +51,7 @@ struct PollInput {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct GetFileInput {
-    #[schemars(description = "Server alias from .safeshell.toml")]
+    #[schemars(description = "Server alias from .safehell.toml")]
     alias: String,
     #[schemars(description = "Absolute path on the remote host")]
     remote_path: String,
@@ -63,7 +63,7 @@ struct GetFileInput {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct PutFileInput {
-    #[schemars(description = "Server alias from .safeshell.toml")]
+    #[schemars(description = "Server alias from .safehell.toml")]
     alias: String,
     #[schemars(description = "Source path inside the project directory")]
     local_path: String,
@@ -73,7 +73,7 @@ struct PutFileInput {
     reason: Option<String>,
 }
 
-impl SafeShellMcp {
+impl SafeHellMcp {
     fn new(project: std::path::PathBuf) -> Self {
         Self {
             tool_router: Self::tool_router(),
@@ -83,14 +83,14 @@ impl SafeShellMcp {
 }
 
 #[tool_router]
-impl SafeShellMcp {
+impl SafeHellMcp {
     #[tool(
-        description = "List configured SafeShell server aliases and their autoapprove rules. Reads the project config directly, so it works while the broker is down. Does not expose credentials."
+        description = "List configured SafeHell server aliases and their autoapprove rules. Reads the project config directly, so it works while the broker is down. Does not expose credentials."
     )]
     async fn list_servers(&self) -> String {
         match config::discover(&self.project) {
             Ok(project) if project.config.servers.is_empty() => {
-                "no servers configured; run `safeshell server add`".into()
+                "no servers configured; run `safehell server add`".into()
             }
             Ok(project) => project
                 .config
@@ -192,10 +192,10 @@ impl SafeShellMcp {
 }
 
 #[tool_handler(router = self.tool_router)]
-impl ServerHandler for SafeShellMcp {
+impl ServerHandler for SafeHellMcp {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
-            .with_instructions("Use SafeShell instead of direct SSH. Every remote command requires approval in the SafeShell broker terminal.")
+            .with_instructions("Use SafeHell instead of direct SSH. Every remote command requires approval in the SafeHell broker terminal.")
     }
 }
 
@@ -204,8 +204,8 @@ pub async fn run() -> Result<()> {
         .map(std::path::PathBuf::from)
         .unwrap_or(std::env::current_dir()?);
     let project =
-        config::discover(&start).context("MCP must be started inside a SafeShell project")?;
-    SafeShellMcp::new(project.root)
+        config::discover(&start).context("MCP must be started inside a SafeHell project")?;
+    SafeHellMcp::new(project.root)
         .serve(rmcp::transport::stdio())
         .await?
         .waiting()

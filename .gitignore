@@ -1,6 +1,6 @@
 /target/
-.safeshell.toml
-!tests/fixtures/project/.safeshell.toml
+.safehell.toml
+!tests/fixtures/project/.safehell.toml
 *.swp
 .DS_Store
 .agents

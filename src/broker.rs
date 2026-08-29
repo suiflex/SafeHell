@@ -44,7 +44,7 @@ pub async fn serve(auto_approve: bool) -> Result<()> {
         terminal: tokio::sync::Mutex::new(()),
         jobs: Mutex::new(Vec::new()),
     });
-    println!("SafeShell approval broker is running. Keep this terminal open.");
+    println!("SafeHell approval broker is running. Keep this terminal open.");
     if auto_approve {
         println!(
             "AUTO-APPROVE MODE: allow-listed commands run without a prompt. Anything outside `autoapprove.allow` still needs approval, and `autoapprove.deny` always wins."
@@ -623,7 +623,7 @@ fn exact_project(root: &Path) -> Result<config::Project> {
     let canonical = root.canonicalize().context("project path does not exist")?;
     let project = config::discover(&canonical)?;
     if project.root.canonicalize()? != canonical {
-        bail!("project request must point to the directory containing .safeshell.toml");
+        bail!("project request must point to the directory containing .safehell.toml");
     }
     Ok(project)
 }
@@ -709,7 +709,7 @@ mod tests {
 
     #[test]
     fn transfer_paths_cannot_escape_the_project() {
-        let root = std::env::temp_dir().join(format!("safeshell-test-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("safehell-test-{}", std::process::id()));
         std::fs::create_dir_all(root.join("logs")).unwrap();
         let project = config::Project {
             path: root.join(config::CONFIG_NAME),
