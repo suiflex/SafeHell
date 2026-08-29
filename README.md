@@ -1,44 +1,84 @@
-# SafeShell
+<img src="https://raw.githubusercontent.com/suiflex/SafeHell/develop/assets/brand/logo-mark.svg" alt="" width="72" align="left">
 
-SafeShell is a local approval broker for SSH commands requested by AI coding agents. Credentials stay in an encrypted per-user vault, and every remote command is displayed in a separate foreground terminal before it can run.
+# SafeHell
 
-> Public alpha: review the security model and limitations before using SafeShell on production systems.
+SafeHell is a local approval broker for SSH commands requested by AI coding agents. Credentials stay in an encrypted per-user vault, and every remote command is displayed in a separate foreground terminal before it can run.
+
+> Pre-1.0: review the security model and limitations before using SafeHell on production systems.
 
 ## What it guarantees
 
-- SafeShell never places stored passwords in `.safeshell.toml`, CLI arguments, MCP schemas, or audit logs; literal password values are redacted from buffered agent-facing output.
+- SafeHell never places stored passwords in `.safehell.toml`, CLI arguments, MCP schemas, or audit logs; literal password values are redacted from buffered agent-facing output.
 - The vault is encrypted with an age X25519 identity stored in the operating-system credential store.
 - Password credentials are bound to an exact host, port, and username.
-- Every command needs a one-time `y` approval in `safeshell serve`, except commands the project explicitly lists under `autoapprove.allow`.
+- Every command needs a one-time `y` approval in `safehell serve`, except commands the project explicitly lists under `autoapprove.allow`.
 - Commands matching `autoapprove.deny` are refused before any approval path, in both attended and unattended mode.
-- SSH host keys are checked against SafeShell's own `known_hosts`; changed keys are rejected.
+- SSH host keys are checked against SafeHell's own `known_hosts`; changed keys are rejected.
 - Command output is buffered, bounded, and redacted before it is returned to the caller. Redaction covers bearer tokens, private-key blocks, `scheme://user:pass@` URLs, AWS access key ids, and `*_URL`/`*_TOKEN`/`*_SECRET`-style assignments, so container environment dumps lose their values as well as their secrets.
 
-SafeShell does not sandbox the remote shell. Output redaction and agent hooks are defense-in-depth, not guarantees against every possible secret representation or bypass by another local process running as your user.
+SafeHell does not sandbox the remote shell. Output redaction and agent hooks are defense-in-depth, not guarantees against every possible secret representation or bypass by another local process running as your user.
 
 ## Install
 
+### macOS and Linux
+
 ```sh
-curl -fsSL https://raw.githubusercontent.com/badrus123/SafeShell/develop/install.sh | sh
-safeshell setup
+curl -fsSL https://raw.githubusercontent.com/suiflex/SafeHell/develop/scripts/install.sh | sh
+safehell setup
 ```
 
-The script downloads the latest release binary for your platform, verifies it against the release `SHA256SUMS`, and installs it to `$HOME/.local/bin`. Set `SAFESHELL_VERSION` to pin a tag or `SAFESHELL_INSTALL_DIR` to change the destination. Read the script before piping it to a shell.
+The script downloads the latest release binary for your platform, verifies it against the release `SHA256SUMS`, and installs it to `$HOME/.local/bin`. Set `SAFEHELL_VERSION` to pin a tag or `SAFEHELL_INSTALL_DIR` to change the destination. Read the script before piping it to a shell.
 
-Prebuilt binaries cover Linux and macOS on x86_64 and aarch64, and Windows on x86_64. Windows users should download `safeshell-windows-x86_64.exe` from the [releases page](https://github.com/badrus123/SafeShell/releases) directly.
+### Windows
+
+```powershell
+irm https://raw.githubusercontent.com/suiflex/SafeHell/develop/scripts/install.ps1 | iex
+safehell setup
+```
+
+Installs to `%LOCALAPPDATA%\Programs\SafeHell\bin` and honours the same `SAFEHELL_VERSION` and `SAFEHELL_INSTALL_DIR` overrides. It verifies the download against `SHA256SUMS` just as the POSIX installer does.
+
+### Homebrew
+
+```sh
+brew install suiflex/tap/safehell
+```
+
+### Scoop
+
+```powershell
+scoop bucket add suiflex https://github.com/suiflex/scoop-bucket
+scoop install safehell
+```
+
+### npm
+
+```sh
+npm install -g @suiflex/safehell
+```
+
+Installing downloads and verifies the release binary for your platform. `npx @suiflex/safehell` works too.
+
+### Cargo
+
+```sh
+cargo install safehell
+```
+
+Prebuilt binaries cover Linux, macOS, and Windows on both x86_64 and aarch64.
 
 ### Update
 
 Update the installed binary without changing the vault, project configuration, or agent integrations:
 
 ```sh
-safeshell update
+safehell update
 ```
 
 To install a specific release tag:
 
 ```sh
-safeshell update --version v0.1.0-alpha.1
+safehell update --version v0.2.0
 ```
 
 The update downloads the official installer and verifies the binary against the release `SHA256SUMS` before replacing the installed executable.
@@ -49,7 +89,7 @@ Rust 1.85 or newer is required.
 
 ```sh
 cargo install --path .
-safeshell setup
+safehell setup
 ```
 
 ## Configure a project
@@ -57,13 +97,13 @@ safeshell setup
 Run these commands from the project root:
 
 ```sh
-safeshell init
-safeshell server add prod --host example.com --username deploy --auth password
-safeshell server add staging --host staging.example.com --username deploy --auth ssh-agent
-safeshell server list
+safehell init
+safehell server add prod --host example.com --username deploy --auth password
+safehell server add staging --host staging.example.com --username deploy --auth ssh-agent
+safehell server list
 ```
 
-Password entry requires a TTY. `safeshell init` creates `.safeshell.toml` and adds it to `.git/info/exclude` when the project is a Git repository.
+Password entry requires a TTY. `safehell init` creates `.safehell.toml` and adds it to `.git/info/exclude` when the project is a Git repository.
 
 Example config (never add secret fields):
 
@@ -112,18 +152,18 @@ Patterns use `*` as the only wildcard and are matched against the whole command 
 Keep the broker visible in its own terminal:
 
 ```sh
-safeshell serve
+safehell serve
 ```
 
-`safeshell serve --yes` runs the broker unattended: allow-listed commands still
+`safehell serve --yes` runs the broker unattended: allow-listed commands still
 execute, and anything that would need a prompt is denied instead of waiting.
 Every decision is recorded in the audit log.
 
 Then request a command from the project:
 
 ```sh
-safeshell exec prod --reason "check deployment" -- "systemctl status my-app"
-safeshell exec prod --max-lines 60 -- "docker logs --tail 2000 engine-trade"
+safehell exec prod --reason "check deployment" -- "systemctl status my-app"
+safehell exec prod --max-lines 60 -- "docker logs --tail 2000 engine-trade"
 ```
 
 `exec` exits `3` when the broker refuses a command, separately from a transport
@@ -164,7 +204,7 @@ redacted, so treat an approved transfer as handing over the file.
 Every decision, including refusals, is appended to a `0600` JSON Lines file:
 
 ```sh
-safeshell audit --tail 50
+safehell audit --tail 50
 ```
 
 Each entry carries the timestamp, project id, alias, SHA-256 of the command, the
@@ -177,7 +217,7 @@ Pass the remote command as one quoted shell string so its quoting and operators 
 
 The broker shows the project, endpoint, command, and reason. It decrypts a password only after approval. The first connection to an unknown host also shows its key fingerprint and asks whether to trust it.
 
-Commands are non-interactive: no remote PTY, port forwarding, or private-key-file mode is provided in this alpha.
+Commands are non-interactive: no remote PTY, port forwarding, or private-key-file mode is provided yet.
 
 The host-key trust question is the one prompt `approval_timeout_seconds` does not
 cover, so make the first connection to a new host from an attended broker. In
@@ -190,15 +230,15 @@ With the corresponding agent CLI installed:
 
 ```sh
 # Run from the project root; this is project-local by default.
-safeshell integrate install codex
-safeshell integrate install claude
+safehell integrate install codex
+safehell integrate install claude
 
 # Optional: install for every project.
-safeshell integrate install --global codex
-safeshell integrate install --global claude
+safehell integrate install --global codex
+safehell integrate install --global claude
 ```
 
-By default, this registers the stdio MCP server and installs the `PreToolUse` guard in the current project. Use `--global` explicitly to install it for every project. The guard blocks direct `ssh`, `scp`, `sftp`, `sshpass`, and `rsync` calls. Existing JSON settings are backed up before modification. The MCP server exposes only:
+By default, this registers the stdio MCP server as `shll` and installs the `PreToolUse` guard in the current project. The short name is what an agent types on every tool call. Installing removes any earlier `safeshell` or `safehell` registration first, so upgrading does not leave two servers exposing the same tools. Use `--global` explicitly to install it for every project. The guard blocks direct `ssh`, `scp`, `sftp`, `sshpass`, and `rsync` calls. Existing JSON settings are backed up before modification. The MCP server exposes only:
 
 - `list_servers`
 - `execute` (write/destructive capable; still requires broker approval)
@@ -209,7 +249,7 @@ The hook does not rewrite commands and cannot prevent all bypasses. Agent polici
 
 ## Data and audit
 
-SafeShell uses the platform user-data directory for:
+SafeHell uses the platform user-data directory for:
 
 - `vault.age`: encrypted credentials
 - `known_hosts`: trusted SSH host keys
@@ -225,4 +265,4 @@ cargo clippy --all-targets -- -D warnings
 cargo test --all-targets
 ```
 
-SafeShell is dual-licensed under Apache-2.0 or MIT.
+SafeHell is dual-licensed under Apache-2.0 or MIT.

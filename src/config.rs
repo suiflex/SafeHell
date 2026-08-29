@@ -7,7 +7,7 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-pub const CONFIG_NAME: &str = ".safeshell.toml";
+pub const CONFIG_NAME: &str = ".safehell.toml";
 pub const MAX_TIMEOUT_SECONDS: u64 = 600;
 pub const MAX_OUTPUT_BYTES: usize = 10 * 1024 * 1024;
 pub const MAX_APPROVAL_TIMEOUT_SECONDS: u64 = 3600;
@@ -120,7 +120,7 @@ pub fn discover(start: &Path) -> Result<Project> {
             });
         }
     }
-    bail!("no {CONFIG_NAME} found in this directory or its parents; run `safeshell init`")
+    bail!("no {CONFIG_NAME} found in this directory or its parents; run `safehell init`")
 }
 
 pub fn load(path: &Path) -> Result<ProjectConfig> {

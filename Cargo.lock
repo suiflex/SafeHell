@@ -2776,8 +2776,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
 
 [[package]]
-name = "safeshell"
-version = "0.1.0-alpha.3"
+name = "safehell"
+version = "0.1.0"
 dependencies = [
  "age",
  "anyhow",

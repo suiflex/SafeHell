@@ -1,12 +1,19 @@
 use std::fs;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
 
 use crate::{Agent, config, executable};
+
+/// Name the agent CLIs register the MCP server under. Deliberately short:
+/// it is what a model types on every tool call, not a brand string.
+const MCP_SERVER: &str = "shll";
+/// Names earlier versions registered. Removed before re-registering so an
+/// upgraded install does not expose the same tools twice.
+const LEGACY_MCP_SERVERS: [&str; 2] = ["safeshell", "safehell"];
 
 pub fn install(agent: Agent, global: bool) -> Result<()> {
     let executable = executable()?;
@@ -25,7 +32,7 @@ pub fn install(agent: Agent, global: bool) -> Result<()> {
     );
     install_hook(&path, &executable, hook_agent)?;
     println!(
-        "Installed SafeShell MCP and hook integration ({})",
+        "Installed SafeHell MCP and hook integration ({})",
         if global { "global" } else { "project" }
     );
     Ok(())
@@ -51,12 +58,42 @@ pub fn hook(_agent: Agent) -> Result<()> {
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
                     "permissionDecision": "deny",
-                    "permissionDecisionReason": "Direct SSH tools are blocked in this project. Use the SafeShell MCP tools so credentials stay brokered and each command is approved."
+                    "permissionDecisionReason": "Direct SSH tools are blocked in this project. Use the SafeHell MCP tools so credentials stay brokered and each command is approved."
                 }
             })
         );
     }
     Ok(())
+}
+
+/// Best effort: the CLI errors when the server was never registered, and that
+/// is the common case, so a failure here must not abort the install.
+fn unregister_legacy_mcp(agent: Agent, global: bool, project: Option<&Path>) {
+    for name in LEGACY_MCP_SERVERS {
+        let mut command = match agent {
+            Agent::Codex => {
+                let mut command = Command::new("codex");
+                if let Some(project) = project {
+                    command.current_dir(project);
+                    command.env("CODEX_HOME", project.join(".codex"));
+                }
+                command.args(["mcp", "remove", name]);
+                command
+            }
+            Agent::Claude => {
+                let mut command = Command::new("claude");
+                command.args([
+                    "mcp",
+                    "remove",
+                    "--scope",
+                    if global { "user" } else { "local" },
+                ]);
+                command.arg(name);
+                command
+            }
+        };
+        let _ = command.stdout(Stdio::null()).stderr(Stdio::null()).status();
+    }
 }
 
 fn register_mcp(
@@ -65,6 +102,7 @@ fn register_mcp(
     global: bool,
     project: Option<&Path>,
 ) -> Result<()> {
+    unregister_legacy_mcp(agent, global, project);
     let mut command = match agent {
         Agent::Codex => {
             let mut command = Command::new("codex");
@@ -72,14 +110,14 @@ fn register_mcp(
                 command.current_dir(project);
                 command.env("CODEX_HOME", project.join(".codex"));
             }
-            command.args(["mcp", "add", "safeshell", "--"]);
+            command.args(["mcp", "add", MCP_SERVER, "--"]);
             command
         }
         Agent::Claude => {
             let mut command = Command::new("claude");
             command.args(["mcp", "add", "--transport", "stdio"]);
             command.args(["--scope", if global { "user" } else { "local" }]);
-            command.args(["safeshell", "--"]);
+            command.args([MCP_SERVER, "--"]);
             command
         }
     };
@@ -89,7 +127,7 @@ fn register_mcp(
         .status()
         .context("agent CLI is not installed or not executable")?;
     if !status.success() {
-        bail!("agent CLI failed to register the SafeShell MCP server");
+        bail!("agent CLI failed to register the SafeHell MCP server");
     }
     Ok(())
 }
@@ -147,7 +185,7 @@ fn install_hook(path: &Path, executable: &Path, agent: &str) -> Result<()> {
         fs::create_dir_all(parent)?;
     }
     if path.exists() {
-        fs::copy(path, path.with_extension("json.safeshell.bak"))?;
+        fs::copy(path, path.with_extension("json.safehell.bak"))?;
     }
     crate::config::atomic_write(path, serde_json::to_string_pretty(&root)?.as_bytes())
 }
@@ -189,7 +227,7 @@ mod tests {
         ));
         assert!(contains_direct_ssh("rsync ./a host:/b"));
         assert!(!contains_direct_ssh(
-            "echo ssh-keygen && safeshell exec prod -- uptime"
+            "echo ssh-keygen && safehell exec prod -- uptime"
         ));
     }
 }

@@ -1,0 +1,45 @@
+# Template for suiflex/homebrew-tap Formula/safehell.rb.
+#
+# .github/workflows/release-build.yml renders this with sed on every tagged
+# release, filling the placeholders below from that run's build artifacts. Edit
+# this template, never the generated file in the tap: the next release
+# overwrites it.
+#
+# The class name follows the file name, so Formula/safehell.rb must declare
+# Safehell.
+class Safehell < Formula
+  desc "Approval-gated SSH broker for AI coding agents"
+  homepage "https://github.com/suiflex/SafeHell"
+  version "@VERSION@"
+  license "MIT"
+
+  on_macos do
+    on_arm do
+      url "@BASE@/safehell-macos-aarch64.tar.gz"
+      sha256 "@MACOS_ARM64_SHA@"
+    end
+    on_intel do
+      url "@BASE@/safehell-macos-x86_64.tar.gz"
+      sha256 "@MACOS_X86_64_SHA@"
+    end
+  end
+
+  on_linux do
+    on_arm do # @LINUX_ARM64@
+      url "@BASE@/safehell-linux-aarch64.tar.gz" # @LINUX_ARM64@
+      sha256 "@LINUX_ARM64_SHA@" # @LINUX_ARM64@
+    end # @LINUX_ARM64@
+    on_intel do
+      url "@BASE@/safehell-linux-x86_64.tar.gz"
+      sha256 "@LINUX_X86_64_SHA@"
+    end
+  end
+
+  def install
+    bin.install "safehell"
+  end
+
+  test do
+    assert_match version.to_s, shell_output("#{bin}/safehell --version")
+  end
+end

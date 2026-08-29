@@ -10,7 +10,7 @@ use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use crate::config;
 
-const SERVICE: &str = "dev.safeshell.master";
+const SERVICE: &str = "dev.safehell.master";
 const ACCOUNT: &str = "default";
 
 #[derive(Serialize, Deserialize, Default)]
@@ -40,7 +40,7 @@ pub fn setup() -> Result<()> {
     };
     let vault_exists = path.exists();
     match (key_exists, vault_exists) {
-        (true, true) => bail!("SafeShell is already set up"),
+        (true, true) => bail!("SafeHell is already set up"),
         (true, false) | (false, true) => {
             bail!("vault/key mismatch; restore the missing component before continuing")
         }
@@ -111,11 +111,11 @@ fn identity() -> Result<age::x25519::Identity> {
     let encoded = Zeroizing::new(
         entry()?
             .get_password()
-            .context("SafeShell master identity is unavailable; run `safeshell setup`")?,
+            .context("SafeHell master identity is unavailable; run `safehell setup`")?,
     );
     encoded
         .parse()
-        .map_err(|_| anyhow::anyhow!("stored SafeShell master identity is invalid"))
+        .map_err(|_| anyhow::anyhow!("stored SafeHell master identity is invalid"))
 }
 
 #[cfg(windows)]
@@ -125,7 +125,7 @@ pub fn socket_token() -> Result<String> {
     let encoded = Zeroizing::new(
         entry()?
             .get_password()
-            .context("SafeShell master identity is unavailable; run `safeshell setup`")?,
+            .context("SafeHell master identity is unavailable; run `safehell setup`")?,
     );
     let digest = Sha256::digest(encoded.as_bytes());
     Ok(digest[..8]
@@ -135,7 +135,7 @@ pub fn socket_token() -> Result<String> {
 }
 
 fn data_dir() -> Result<std::path::PathBuf> {
-    let dirs = ProjectDirs::from("dev", "SafeShell", "SafeShell")
+    let dirs = ProjectDirs::from("dev", "SafeHell", "SafeHell")
         .context("cannot determine user data directory")?;
     let path = dirs.data_local_dir().to_path_buf();
     fs::create_dir_all(&path)?;
@@ -166,7 +166,7 @@ pub fn socket_path() -> Result<std::path::PathBuf> {
 
 fn load_with_identity(identity: &age::x25519::Identity) -> Result<VaultData> {
     let ciphertext =
-        fs::read(vault_path()?).context("cannot read encrypted vault; run `safeshell setup`")?;
+        fs::read(vault_path()?).context("cannot read encrypted vault; run `safehell setup`")?;
     let plaintext =
         Zeroizing::new(age::decrypt(identity, &ciphertext).context("cannot decrypt vault")?);
     let data: VaultData = serde_json::from_slice(&plaintext).context("invalid vault contents")?;

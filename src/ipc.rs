@@ -94,7 +94,7 @@ pub enum Response {
 pub async fn request(request: Request) -> Result<Response> {
     let stream = Stream::connect(socket_name()?)
         .await
-        .context("SafeShell broker is not running; start `safeshell serve` in another terminal")?;
+        .context("SafeHell broker is not running; start `safehell serve` in another terminal")?;
     write_frame(&stream, &request, MAX_REQUEST_BYTES).await?;
     read_frame(&stream, MAX_RESPONSE_BYTES).await
 }
@@ -104,7 +104,7 @@ pub fn listener() -> Result<Listener> {
         .name(socket_name()?)
         .try_overwrite(true)
         .create_tokio()
-        .context("another SafeShell broker may already be running")
+        .context("another SafeHell broker may already be running")
 }
 
 pub async fn receive(stream: &Stream) -> Result<Request> {
@@ -125,7 +125,7 @@ fn socket_name() -> Result<interprocess::local_socket::Name<'static>> {
 #[cfg(windows)]
 fn socket_name() -> Result<interprocess::local_socket::Name<'static>> {
     let suffix = crate::vault::socket_token()?;
-    format!("safeshell-{suffix}")
+    format!("safehell-{suffix}")
         .to_ns_name::<GenericNamespaced>()
         .context("cannot create broker socket name")
 }

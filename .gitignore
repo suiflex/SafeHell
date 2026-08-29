@@ -1,9 +1,13 @@
 /target/
-.safeshell.toml
-!tests/fixtures/project/.safeshell.toml
+.safehell.toml
+!tests/fixtures/project/.safehell.toml
 *.swp
 .DS_Store
 .agents
 .claude
 .codex
 .forgeguard
+# npm installer vendors the release binary next to its launcher
+npm/bin/safehell
+npm/bin/safehell.exe
+npm/node_modules/

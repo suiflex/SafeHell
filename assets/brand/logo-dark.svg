@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 64" role="img" aria-label="SafeHell — approval-gated SSH broker for AI coding agents">
+  <rect x="0" y="6" width="52" height="52" rx="12" fill="#0a0a0a"/>
+  <g>
+    <path d="M17.88 29.56 V24.53 A8.12 8.12 0 0 1 34.12 24.53 V29.56" fill="none" stroke="#4ade80" stroke-width="5.2" stroke-linecap="butt"/>
+    <path d="M8.94 28.75 H43.06 V49.88 H8.94 Z" fill="#4ade80"/>
+    <path d="M15.6 34.6 L21.78 39.31 L15.6 44.02" fill="none" stroke="#0a0a0a" stroke-width="4.06" stroke-linejoin="miter" stroke-linecap="butt"/>
+    <path d="M25.68 44.35 H36.07" stroke="#0a0a0a" stroke-width="4.06" stroke-linecap="butt"/>
+  </g>
+  <text x="66" y="44" font-family="'Geist Sans','Inter','SF Pro Display',system-ui,-apple-system,sans-serif" font-size="34" font-weight="700" letter-spacing="-0.8">
+    <tspan fill="#4ade80">Safe</tspan><tspan fill="#fafafa">Hell</tspan>
+  </text>
+</svg>
