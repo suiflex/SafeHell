@@ -1,7 +1,7 @@
 #!/bin/sh
 # SafeHell installer.
 #
-#   curl -fsSL https://raw.githubusercontent.com/suiflex/SafeHell/develop/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/suiflex/SafeHell/develop/scripts/install.sh | sh
 #
 # Environment overrides:
 #   SAFEHELL_VERSION      release tag to install (default: latest)
@@ -30,7 +30,7 @@ detect_asset() {
 	Linux) os=linux ;;
 	Darwin) os=macos ;;
 	MINGW* | MSYS* | CYGWIN*)
-		err "Windows is not supported by this script; download safehell-windows-x86_64.exe from https://github.com/$REPO/releases"
+		err "Windows is not supported by this script; run scripts/install.ps1 instead: irm https://raw.githubusercontent.com/$REPO/develop/scripts/install.ps1 | iex"
 		;;
 	*) err "unsupported operating system: $os" ;;
 	esac

@@ -27,8 +27,21 @@ jobs:
         run: cargo test --all-targets
       - name: Shellcheck
         if: runner.os == 'Linux'
-        run: shellcheck -s sh install.sh tests/install_sh_test.sh
+        run: shellcheck -s sh scripts/install.sh tests/install_sh_test.sh
       - name: Installer script
         if: runner.os != 'Windows'
         run: sh tests/install_sh_test.sh
+      # There is no shellcheck for PowerShell, but a parse error is the failure
+      # mode that would otherwise reach users through `irm | iex`.
+      - name: Parse Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            "scripts/install.ps1", [ref]$null, [ref]$errors) | Out-Null
+          if ($errors) { $errors | ForEach-Object { Write-Error $_ }; exit 1 }
+          Write-Host "scripts/install.ps1 parses cleanly"
+      - name: Npm installer selftest
+        run: node npm/install.js --selftest
 

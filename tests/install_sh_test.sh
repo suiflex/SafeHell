@@ -7,7 +7,7 @@
 set -eu
 unset CDPATH
 
-script=$(cd -- "$(dirname -- "$0")/.." && pwd)/install.sh
+script=$(cd -- "$(dirname -- "$0")/.." && pwd)/scripts/install.sh
 [ -f "$script" ] || { echo "install.sh not found at $script" >&2; exit 1; }
 
 work=$(mktemp -d)

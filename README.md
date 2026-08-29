@@ -19,7 +19,7 @@ SafeHell does not sandbox the remote shell. Output redaction and agent hooks are
 ## Install
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/suiflex/SafeHell/develop/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/suiflex/SafeHell/develop/scripts/install.sh | sh
 safehell setup
 ```
 
