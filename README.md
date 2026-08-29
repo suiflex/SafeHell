@@ -1,4 +1,4 @@
-<img src="assets/brand/logo-mark.svg" alt="" width="72" align="left">
+<img src="https://raw.githubusercontent.com/suiflex/SafeHell/develop/assets/brand/logo-mark.svg" alt="" width="72" align="left">
 
 # SafeHell
 
