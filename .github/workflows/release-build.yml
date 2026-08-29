@@ -1,0 +1,285 @@
+name: release-build
+
+# A version-tag push builds the release and updates all distribution channels.
+# workflow_dispatch is an npm-only recovery path for an existing release tag.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to publish to npm
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    if: github.event_name == 'push'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset: safehell-linux-x86_64
+            extension: ""
+            archive: tar.gz
+          - os: ubuntu-24.04-arm
+            asset: safehell-linux-aarch64
+            extension: ""
+            archive: tar.gz
+            experimental: true
+          - os: macos-15-intel
+            asset: safehell-macos-x86_64
+            extension: ""
+            archive: tar.gz
+          - os: macos-latest
+            asset: safehell-macos-aarch64
+            extension: ""
+            archive: tar.gz
+          - os: windows-latest
+            asset: safehell-windows-x86_64
+            extension: .exe
+            archive: zip
+          - os: windows-11-arm
+            asset: safehell-windows-aarch64
+            extension: .exe
+            archive: zip
+            experimental: true
+    runs-on: ${{ matrix.os }}
+    # Experimental arm legs are best effort: a failure must not fail the `build`
+    # job, because the publish-* jobs depend on it and the release is otherwise
+    # complete. The formula and manifest renderers drop the missing arch.
+    continue-on-error: ${{ matrix.experimental || false }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-${{ matrix.asset }}
+      - run: cargo build --release --locked
+      # Two shapes of the same binary: install.sh downloads the bare file and
+      # verifies it against SHA256SUMS, while Homebrew, Scoop, and npm all want
+      # an archive.
+      - name: Stage binary
+        shell: bash
+        run: cp "target/release/safehell${{ matrix.extension }}" "${{ matrix.asset }}${{ matrix.extension }}"
+      - name: Package archive (unix)
+        if: runner.os != 'Windows'
+        run: tar -czf "${{ matrix.asset }}.tar.gz" -C target/release safehell
+      - name: Package archive (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "target/release/safehell.exe" `
+            -DestinationPath "${{ matrix.asset }}.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: |
+            ${{ matrix.asset }}${{ matrix.extension }}
+            ${{ matrix.asset }}.${{ matrix.archive }}
+
+  # Publishes every asset together with SHA256SUMS in one release, so install.sh
+  # never sees a release whose checksums have not been uploaded yet.
+  publish:
+    if: github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Generate checksums
+        run: cd artifacts && sha256sum safehell-* > SHA256SUMS
+      - uses: softprops/action-gh-release@v3
+        with:
+          files: artifacts/*
+          generate_release_notes: true
+
+  # ---- distribution jobs: siblings, all need `publish`, none need each other ----
+  # A failure in one does NOT cancel the others, so a broken tap does not cost
+  # the crates.io or npm publish.
+
+  publish-crates:
+    if: github.event_name == 'push'
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo publish --locked
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  publish-homebrew:
+    if: github.event_name == 'push'
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Render formula and push to tap
+        env:
+          GH_TOKEN: ${{ secrets.TAP_PUBLISH_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          VERSION="${TAG#v}"
+          base="https://github.com/${REPO}/releases/download/${TAG}"
+
+          dl() { gh release download "$TAG" -R "$REPO" -p "$1" -O "$1" --clobber; }
+          sha() { shasum -a 256 "$1" | cut -d' ' -f1; }
+
+          for a in safehell-macos-aarch64 safehell-macos-x86_64 safehell-linux-x86_64; do
+            dl "$a.tar.gz"
+          done
+          macos_arm64_sha="$(sha safehell-macos-aarch64.tar.gz)"
+          macos_x86_64_sha="$(sha safehell-macos-x86_64.tar.gz)"
+          linux_x86_64_sha="$(sha safehell-linux-x86_64.tar.gz)"
+
+          # arm64 Linux is a best-effort build leg, so its asset may legitimately
+          # be absent. Publish the stanza when it exists and drop just that
+          # stanza when it does not, rather than failing an otherwise good
+          # release.
+          arm64_tgz="safehell-linux-aarch64.tar.gz"
+          if dl "$arm64_tgz"; then
+            arm64_rules=(-e "s|@LINUX_ARM64_SHA@|$(sha "$arm64_tgz")|g" -e "s| # @LINUX_ARM64@||g")
+          else
+            echo "::warning::${arm64_tgz} missing; formula ships linux x86_64 only"
+            arm64_rules=(-e "/# @LINUX_ARM64@/d")
+          fi
+
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/suiflex/homebrew-tap.git" tap
+          mkdir -p tap/Formula
+          sed -e "s|@VERSION@|${VERSION}|g" \
+              -e "s|@BASE@|${base}|g" \
+              -e "s|@MACOS_ARM64_SHA@|${macos_arm64_sha}|g" \
+              -e "s|@MACOS_X86_64_SHA@|${macos_x86_64_sha}|g" \
+              -e "s|@LINUX_X86_64_SHA@|${linux_x86_64_sha}|g" \
+              "${arm64_rules[@]}" \
+              packaging/safehell.rb.tmpl > tap/Formula/safehell.rb
+
+          # Nothing else checks this file. It is rendered by sed and pushed
+          # straight to the tap, so without this a broken render would only
+          # surface on a user's `brew install`. Validate the rendered output:
+          # sed is the part that can go wrong.
+          f=tap/Formula/safehell.rb
+          ruby -c "$f" > /dev/null || { echo "::error::${f} is not valid Ruby"; exit 1; }
+          if leftover="$(grep -n '@[A-Z0-9_]*@' "$f")"; then
+            echo "::error::${f} has unsubstituted placeholders:"; echo "$leftover"; exit 1
+          fi
+          # sha() on a missing asset yields an empty string, rendering sha256 "".
+          # Homebrew accepts that at render time and only fails much later,
+          # mid-download, on the user's machine.
+          if bad="$(grep -n 'sha256' "$f" | grep -vE '"[0-9a-f]{64}"')"; then
+            echo "::error::${f} has a sha256 that is not a 64-hex digest:"; echo "$bad"; exit 1
+          fi
+
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/safehell.rb
+          git commit -m "safehell ${VERSION}" || { echo "no change"; exit 0; }
+          git push
+
+  publish-scoop:
+    if: github.event_name == 'push'
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Render manifest and push to bucket
+        env:
+          GH_TOKEN: ${{ secrets.TAP_PUBLISH_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          dl() { gh release download "$TAG" -R "$REPO" -p "$1" -O "$1" --clobber; }
+
+          dl "safehell-windows-x86_64.zip"
+          # arm64 Windows is a best-effort build leg, so its asset may
+          # legitimately be absent. The renderer emits that architecture only
+          # when the file is present, so scoop never points at a 404.
+          dl "safehell-windows-aarch64.zip" \
+            || echo "::warning::safehell-windows-aarch64.zip missing; manifest ships 64bit only"
+
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/suiflex/scoop-bucket.git" bucket
+          mkdir -p bucket/bucket
+          # Built rather than sed-templated: a scoop manifest is JSON, so
+          # constructing it makes an unsubstituted placeholder or a malformed
+          # optional stanza impossible by construction. A broken manifest would
+          # otherwise only surface on a user's `scoop install`.
+          python3 packaging/render_scoop.py > bucket/bucket/safehell.json
+
+          cd bucket
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add bucket/safehell.json
+          git commit -m "safehell ${TAG#v}" || { echo "no change"; exit 0; }
+          git push
+
+  # Publishes @suiflex/safehell to npm. The package's postinstall downloads the
+  # matching release asset at the user's install time, so this job ships only
+  # the tiny installer, not the binaries.
+  publish-npm:
+    if: github.event_name == 'push'
+    needs: publish
+    runs-on: ubuntu-latest
+    # OIDC Trusted Publishing: no NPM_TOKEN. The npm package trusts this repo,
+    # this workflow, and the `Release` environment; GitHub mints a short-lived
+    # OIDC token.
+    environment: Release
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+      # Trusted publishing needs npm >= 11.5.1; node 20 ships npm 10. Keep this
+      # below npm 12, which no longer supports the Node 20 runner.
+      - name: Upgrade npm for OIDC trusted publishing
+        run: npm install -g npm@11.5.2
+      # Pin the package version to the release tag so it can never drift from
+      # the crate version if release-please's file sync lags a release.
+      - name: Set version from tag
+        working-directory: npm
+        run: npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version --allow-same-version
+      - run: npm publish --access public
+        working-directory: npm
+
+  # Re-publishes only the npm installer for an existing release tag. Kept
+  # separate from the tag path: release assets and package taps have already
+  # succeeded, so a retry must not rebuild or overwrite them.
+  recover-npm:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: Release
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+      - name: Upgrade npm for OIDC trusted publishing
+        run: npm install -g npm@11.5.2
+      - name: Set version from tag
+        working-directory: npm
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: npm version "${RELEASE_TAG#v}" --no-git-tag-version --allow-same-version
+      - run: npm publish --access public
+        working-directory: npm
