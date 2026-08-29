@@ -1,9 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 64" role="img" aria-label="SafeHell — approval-gated SSH broker for AI coding agents">
   <rect x="0" y="6" width="52" height="52" rx="12" fill="#0a0a0a"/>
-  <g fill="none" stroke="#4ade80" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M18.9 17.1 H12.0 V46.9 H18.9"/>
-    <path d="M33.2 17.1 H40.0 V46.9 H33.2"/>
-    <path d="M23.1 24.9 L29.6 32.0 L23.1 39.1"/>
+  <g>
+    <path d="M10.08 23.55 L18.2 31.03 L10.08 38.5" fill="none" stroke="#4ade80" stroke-width="4.06" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M10.4 46.3 H21.45" stroke="#4ade80" stroke-width="4.06" stroke-linecap="round"/>
+    <path d="M24.05 40.77 C29.9 41.1 35.1 35.9 37.7 29.4" fill="none" stroke="#4ade80" stroke-width="3.9" stroke-linecap="round"/>
+    <circle cx="39.98" cy="23.55" r="7.47" fill="#4ade80"/>
+    <path d="M36.73 23.71 L39.0 25.99 L43.23 21.27" fill="none" stroke="#0a0a0a" stroke-width="2.93" stroke-linecap="round" stroke-linejoin="round"/>
   </g>
   <text x="66" y="44" font-family="'Geist Sans','Inter','SF Pro Display',system-ui,-apple-system,sans-serif" font-size="34" font-weight="700" letter-spacing="-0.8">
     <tspan fill="#4ade80">Safe</tspan><tspan fill="#fafafa">Hell</tspan>
