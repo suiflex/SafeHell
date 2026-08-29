@@ -2,7 +2,8 @@ use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result, bail};
 
-const INSTALLER_URL: &str = "https://raw.githubusercontent.com/suiflex/SafeHell/develop/scripts/install.sh";
+const INSTALLER_URL: &str =
+    "https://raw.githubusercontent.com/suiflex/SafeHell/develop/scripts/install.sh";
 
 pub fn run(version: Option<&str>) -> Result<()> {
     let executable = std::env::current_exe().context("cannot determine installed safehell path")?;
