@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="SafeHell">
+  <rect width="32" height="32" rx="7" fill="#0a0a0a"/>
+  <path d="M11.6 6.8 H7.4 V25.2 H11.6" fill="none" stroke="#4ade80" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M20.4 6.8 H24.6 V25.2 H20.4" fill="none" stroke="#4ade80" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M14.2 11.6 L18.2 16 L14.2 20.4" fill="none" stroke="#4ade80" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

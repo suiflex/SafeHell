@@ -1,3 +1,5 @@
+<img src="assets/brand/logo-mark.svg" alt="" width="72" align="left">
+
 # SafeHell
 
 SafeHell is a local approval broker for SSH commands requested by AI coding agents. Credentials stay in an encrypted per-user vault, and every remote command is displayed in a separate foreground terminal before it can run.
