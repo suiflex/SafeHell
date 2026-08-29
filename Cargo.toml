@@ -4,6 +4,13 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "Approval-gated SSH broker for AI coding agents"
+repository = "https://github.com/suiflex/SafeHell"
+homepage = "https://github.com/suiflex/SafeHell"
+documentation = "https://docs.rs/safehell"
+readme = "README.md"
+keywords = ["ssh", "mcp", "agent", "security", "broker"]
+categories = ["command-line-utilities", "development-tools"]
+exclude = ["/.github", "/npm", "/packaging", "/scripts", "/tests", "/assets"]
 
 [dependencies]
 age = "0.11.1"
