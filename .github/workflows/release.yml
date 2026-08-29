@@ -14,19 +14,19 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            asset: safeshell-linux-x86_64
+            asset: safehell-linux-x86_64
             extension: ""
           - os: ubuntu-24.04-arm
-            asset: safeshell-linux-aarch64
+            asset: safehell-linux-aarch64
             extension: ""
           - os: macos-15-intel
-            asset: safeshell-macos-x86_64
+            asset: safehell-macos-x86_64
             extension: ""
           - os: macos-latest
-            asset: safeshell-macos-aarch64
+            asset: safehell-macos-aarch64
             extension: ""
           - os: windows-latest
-            asset: safeshell-windows-x86_64.exe
+            asset: safehell-windows-x86_64.exe
             extension: .exe
     runs-on: ${{ matrix.os }}
     steps:
@@ -35,7 +35,7 @@ jobs:
       - run: cargo build --release --locked
       - name: Stage binary
         shell: bash
-        run: cp "target/release/safeshell${{ matrix.extension }}" "${{ matrix.asset }}"
+        run: cp "target/release/safehell${{ matrix.extension }}" "${{ matrix.asset }}"
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.asset }}
@@ -52,7 +52,7 @@ jobs:
           path: artifacts
           merge-multiple: true
       - name: Generate checksums
-        run: cd artifacts && sha256sum safeshell-* > SHA256SUMS
+        run: cd artifacts && sha256sum safehell-* > SHA256SUMS
       - uses: softprops/action-gh-release@v3
         with:
           files: artifacts/*

@@ -1,18 +1,18 @@
 #!/bin/sh
-# SafeShell installer.
+# SafeHell installer.
 #
-#   curl -fsSL https://raw.githubusercontent.com/badrus123/SafeShell/develop/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/suiflex/SafeHell/develop/install.sh | sh
 #
 # Environment overrides:
-#   SAFESHELL_VERSION      release tag to install (default: latest)
-#   SAFESHELL_INSTALL_DIR  destination directory (default: $HOME/.local/bin)
+#   SAFEHELL_VERSION      release tag to install (default: latest)
+#   SAFEHELL_INSTALL_DIR  destination directory (default: $HOME/.local/bin)
 
 set -eu
 
-REPO="badrus123/SafeShell"
+REPO="suiflex/SafeHell"
 
 err() {
-	printf 'safeshell: %s\n' "$*" >&2
+	printf 'safehell: %s\n' "$*" >&2
 	exit 1
 }
 
@@ -30,7 +30,7 @@ detect_asset() {
 	Linux) os=linux ;;
 	Darwin) os=macos ;;
 	MINGW* | MSYS* | CYGWIN*)
-		err "Windows is not supported by this script; download safeshell-windows-x86_64.exe from https://github.com/$REPO/releases"
+		err "Windows is not supported by this script; download safehell-windows-x86_64.exe from https://github.com/$REPO/releases"
 		;;
 	*) err "unsupported operating system: $os" ;;
 	esac
@@ -48,7 +48,7 @@ detect_asset() {
 	*) err "unsupported architecture: $arch" ;;
 	esac
 
-	printf 'safeshell-%s-%s' "$os" "$arch"
+	printf 'safehell-%s-%s' "$os" "$arch"
 }
 
 # Resolves the latest tag by following the /releases/latest redirect, which
@@ -78,8 +78,8 @@ main() {
 	need uname
 
 	asset=$(detect_asset)
-	version=${SAFESHELL_VERSION:-$(latest_version)}
-	install_dir=${SAFESHELL_INSTALL_DIR:-$HOME/.local/bin}
+	version=${SAFEHELL_VERSION:-$(latest_version)}
+	install_dir=${SAFEHELL_INSTALL_DIR:-$HOME/.local/bin}
 	base="https://github.com/$REPO/releases/download/$version"
 
 	tmp=$(mktemp -d)
@@ -98,13 +98,13 @@ main() {
 
 	mkdir -p "$install_dir"
 	chmod +x "$tmp/$asset"
-	mv -f "$tmp/$asset" "$install_dir/safeshell"
+	mv -f "$tmp/$asset" "$install_dir/safehell"
 
-	printf 'Installed safeshell %s to %s/safeshell\n' "$version" "$install_dir"
+	printf 'Installed safehell %s to %s/safehell\n' "$version" "$install_dir"
 
 	case ":$PATH:" in
 	*":$install_dir:"*) ;;
-	*) printf '\n%s is not on your PATH. Add it, then run: safeshell setup\n' "$install_dir" ;;
+	*) printf '\n%s is not on your PATH. Add it, then run: safehell setup\n' "$install_dir" ;;
 	esac
 }
 
