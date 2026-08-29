@@ -2,7 +2,7 @@
 
 SafeHell is a local approval broker for SSH commands requested by AI coding agents. Credentials stay in an encrypted per-user vault, and every remote command is displayed in a separate foreground terminal before it can run.
 
-> Public alpha: review the security model and limitations before using SafeHell on production systems.
+> Pre-1.0: review the security model and limitations before using SafeHell on production systems.
 
 ## What it guarantees
 
@@ -18,6 +18,8 @@ SafeHell does not sandbox the remote shell. Output redaction and agent hooks are
 
 ## Install
 
+### macOS and Linux
+
 ```sh
 curl -fsSL https://raw.githubusercontent.com/suiflex/SafeHell/develop/scripts/install.sh | sh
 safehell setup
@@ -25,7 +27,43 @@ safehell setup
 
 The script downloads the latest release binary for your platform, verifies it against the release `SHA256SUMS`, and installs it to `$HOME/.local/bin`. Set `SAFEHELL_VERSION` to pin a tag or `SAFEHELL_INSTALL_DIR` to change the destination. Read the script before piping it to a shell.
 
-Prebuilt binaries cover Linux and macOS on x86_64 and aarch64, and Windows on x86_64. Windows users should download `safehell-windows-x86_64.exe` from the [releases page](https://github.com/suiflex/SafeHell/releases) directly.
+### Windows
+
+```powershell
+irm https://raw.githubusercontent.com/suiflex/SafeHell/develop/scripts/install.ps1 | iex
+safehell setup
+```
+
+Installs to `%LOCALAPPDATA%\Programs\SafeHell\bin` and honours the same `SAFEHELL_VERSION` and `SAFEHELL_INSTALL_DIR` overrides. It verifies the download against `SHA256SUMS` just as the POSIX installer does.
+
+### Homebrew
+
+```sh
+brew install suiflex/tap/safehell
+```
+
+### Scoop
+
+```powershell
+scoop bucket add suiflex https://github.com/suiflex/scoop-bucket
+scoop install safehell
+```
+
+### npm
+
+```sh
+npm install -g @suiflex/safehell
+```
+
+Installing downloads and verifies the release binary for your platform. `npx @suiflex/safehell` works too.
+
+### Cargo
+
+```sh
+cargo install safehell
+```
+
+Prebuilt binaries cover Linux, macOS, and Windows on both x86_64 and aarch64.
 
 ### Update
 
@@ -38,7 +76,7 @@ safehell update
 To install a specific release tag:
 
 ```sh
-safehell update --version v0.1.0-alpha.1
+safehell update --version v0.2.0
 ```
 
 The update downloads the official installer and verifies the binary against the release `SHA256SUMS` before replacing the installed executable.
@@ -177,7 +215,7 @@ Pass the remote command as one quoted shell string so its quoting and operators 
 
 The broker shows the project, endpoint, command, and reason. It decrypts a password only after approval. The first connection to an unknown host also shows its key fingerprint and asks whether to trust it.
 
-Commands are non-interactive: no remote PTY, port forwarding, or private-key-file mode is provided in this alpha.
+Commands are non-interactive: no remote PTY, port forwarding, or private-key-file mode is provided yet.
 
 The host-key trust question is the one prompt `approval_timeout_seconds` does not
 cover, so make the first connection to a new host from an attended broker. In
@@ -198,7 +236,7 @@ safehell integrate install --global codex
 safehell integrate install --global claude
 ```
 
-By default, this registers the stdio MCP server and installs the `PreToolUse` guard in the current project. Use `--global` explicitly to install it for every project. The guard blocks direct `ssh`, `scp`, `sftp`, `sshpass`, and `rsync` calls. Existing JSON settings are backed up before modification. The MCP server exposes only:
+By default, this registers the stdio MCP server as `shll` and installs the `PreToolUse` guard in the current project. The short name is what an agent types on every tool call. Installing removes any earlier `safeshell` or `safehell` registration first, so upgrading does not leave two servers exposing the same tools. Use `--global` explicitly to install it for every project. The guard blocks direct `ssh`, `scp`, `sftp`, `sshpass`, and `rsync` calls. Existing JSON settings are backed up before modification. The MCP server exposes only:
 
 - `list_servers`
 - `execute` (write/destructive capable; still requires broker approval)
