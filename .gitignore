@@ -7,3 +7,7 @@
 .claude
 .codex
 .forgeguard
+# npm installer vendors the release binary next to its launcher
+npm/bin/safehell
+npm/bin/safehell.exe
+npm/node_modules/
