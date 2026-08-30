@@ -1,0 +1,54 @@
+# Path -> label map for the PR area labeler (the `label` job in
+# .github/workflows/suiflex.yml).
+#
+# One entry per concern, mirroring the CI workflows: a reviewer can tell from
+# the label row which parts of the repository a pull request touches without
+# opening the diff.
+#
+# Keep this in step with the `paths` filters in .github/workflows/ci-*.yml.
+# Nothing checks that they stayed in sync, and they answer the same question:
+# which part of the repository does this change belong to.
+#
+# `area: docs` and `area: brand` have no CI workflow on purpose. Prose and SVGs
+# have nothing to compile, so they are labelled but not built.
+
+"area: rust":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/**"
+          - "tests/fixtures/**"
+          - "Cargo.toml"
+          - "Cargo.lock"
+
+"area: installer":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "scripts/**"
+          - "tests/install_sh_test.sh"
+
+"area: npm":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "npm/**"
+
+"area: packaging":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "packaging/**"
+
+"area: ci":
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/**"
+          - "release-please-config.json"
+          - ".release-please-manifest.json"
+
+"area: docs":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "**/*.md"
+
+"area: brand":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "assets/**"
