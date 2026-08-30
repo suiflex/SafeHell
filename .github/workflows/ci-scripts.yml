@@ -1,40 +1,46 @@
-name: CI
+name: Installers
 
+# The two install scripts and their acceptance checks. tests/ is split across
+# workflows on purpose: install_sh_test.sh belongs here, while
+# tests/fixtures/** feeds the crate's config-discovery tests and belongs to the
+# Rust workflow.
 on:
   push:
+    branches: [develop]
+    paths:
+      - scripts/**
+      - tests/install_sh_test.sh
+      - .github/workflows/ci-scripts.yml
   pull_request:
+    paths:
+      - scripts/**
+      - tests/install_sh_test.sh
+      - .github/workflows/ci-scripts.yml
 
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  test:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+  posix:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-      - name: Format
-        run: cargo fmt --all -- --check
-      - name: Clippy
-        run: cargo clippy --all-targets -- -D warnings
-      - name: Test
-        run: cargo test --all-targets
       - name: Shellcheck
-        if: runner.os == 'Linux'
         run: shellcheck -s sh scripts/install.sh tests/install_sh_test.sh
-      - name: Installer script
-        if: runner.os != 'Windows'
+      - name: Installer acceptance checks
         run: sh tests/install_sh_test.sh
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
       # There is no shellcheck for PowerShell, but a parse error is the failure
       # mode that would otherwise reach users through `irm | iex`.
       - name: Parse Windows installer
-        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $errors = $null
@@ -42,6 +48,3 @@ jobs:
             "scripts/install.ps1", [ref]$null, [ref]$errors) | Out-Null
           if ($errors) { $errors | ForEach-Object { Write-Error $_ }; exit 1 }
           Write-Host "scripts/install.ps1 parses cleanly"
-      - name: Npm installer selftest
-        run: node npm/install.js --selftest
-
