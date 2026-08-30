@@ -263,7 +263,10 @@ jobs:
       - name: Set version from tag
         working-directory: npm
         run: npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version --allow-same-version
-      - run: npm publish --access public
+      # --provenance despite the docs calling it automatic for trusted publishing:
+      # in practice the publish fails without it. Needs id-token: write above
+      # and the repository field in npm/package.json, both of which are set.
+      - run: npm publish --access public --provenance
         working-directory: npm
 
   # Re-publishes only the npm installer for an existing release tag. Kept
@@ -291,5 +294,8 @@ jobs:
         env:
           RELEASE_TAG: ${{ inputs.tag }}
         run: npm version "${RELEASE_TAG#v}" --no-git-tag-version --allow-same-version
-      - run: npm publish --access public
+      # --provenance despite the docs calling it automatic for trusted publishing:
+      # in practice the publish fails without it. Needs id-token: write above
+      # and the repository field in npm/package.json, both of which are set.
+      - run: npm publish --access public --provenance
         working-directory: npm
