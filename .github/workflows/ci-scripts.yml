@@ -26,10 +26,18 @@ concurrency:
 
 jobs:
   posix:
-    runs-on: ubuntu-latest
+    # Both, because sha256_of() picks sha256sum when it exists and falls back to
+    # shasum otherwise. Linux takes the first branch and macOS the second, so
+    # dropping either would leave half of the checksum verification untested.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
       - name: Shellcheck
+        if: runner.os == 'Linux'
         run: shellcheck -s sh scripts/install.sh tests/install_sh_test.sh
       - name: Installer acceptance checks
         run: sh tests/install_sh_test.sh
