@@ -108,12 +108,22 @@ jobs:
     if: github.event_name == 'push'
     needs: publish
     runs-on: ubuntu-latest
+    # Trusted Publishing, so there is no crates.io token to store or rotate.
+    # crates-io-auth-action trades the OIDC token for a credential that lasts
+    # 30 minutes, and revokes it in its post step. Same arrangement as
+    # publish-npm, which is why both name the Release environment.
+    environment: Release
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - uses: rust-lang/crates-io-auth-action@v1
+        id: auth
       - run: cargo publish --locked
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
 
   publish-homebrew:
     if: github.event_name == 'push'
