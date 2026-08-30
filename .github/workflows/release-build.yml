@@ -250,14 +250,15 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
-      # Deliberately no registry-url. setup-node would then write an
-      # _authToken line into .npmrc, npm would read that as "auth is already
-      # configured", skip the OIDC exchange entirely, and publish with an empty
-      # credential. That fails as a 404 rather than an auth error, which is what
-      # broke the v0.2.0 npm publish. npm defaults to registry.npmjs.org anyway.
-      - uses: actions/setup-node@v4
+      # setup-node v7, not v4: older versions write an _authToken line into
+      # .npmrc that npm reads as "auth is already configured", so it never runs
+      # the OIDC exchange. That is what failed the v0.2.0 publish, first as a
+      # 404 and then, with registry-url removed, as ENEEDAUTH. v7 handles the
+      # trusted-publishing case, and is what rdb publishes with today.
+      - uses: actions/setup-node@v7
         with:
           node-version: 20
+          registry-url: https://registry.npmjs.org
       # Trusted publishing needs npm >= 11.5.1; node 20 ships npm 10. Keep this
       # below npm 12, which no longer supports the Node 20 runner.
       - name: Upgrade npm for OIDC trusted publishing
@@ -287,14 +288,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag }}
-      # Deliberately no registry-url. setup-node would then write an
-      # _authToken line into .npmrc, npm would read that as "auth is already
-      # configured", skip the OIDC exchange entirely, and publish with an empty
-      # credential. That fails as a 404 rather than an auth error, which is what
-      # broke the v0.2.0 npm publish. npm defaults to registry.npmjs.org anyway.
-      - uses: actions/setup-node@v4
+      # setup-node v7, not v4: older versions write an _authToken line into
+      # .npmrc that npm reads as "auth is already configured", so it never runs
+      # the OIDC exchange. That is what failed the v0.2.0 publish, first as a
+      # 404 and then, with registry-url removed, as ENEEDAUTH. v7 handles the
+      # trusted-publishing case, and is what rdb publishes with today.
+      - uses: actions/setup-node@v7
         with:
           node-version: 20
+          registry-url: https://registry.npmjs.org
       - name: Upgrade npm for OIDC trusted publishing
         run: npm install -g npm@11.5.2
       - name: Set version from tag
