@@ -1,0 +1,33 @@
+name: npm
+
+# The npm package is a launcher plus a postinstall downloader. Its selftest
+# asserts the platform mapping and the checksum handling without touching the
+# network, so one runner is enough.
+on:
+  push:
+    branches: [develop]
+    paths:
+      - npm/**
+      - .github/workflows/ci-npm.yml
+  pull_request:
+    paths:
+      - npm/**
+      - .github/workflows/ci-npm.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  selftest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Installer selftest
+        run: node npm/install.js --selftest

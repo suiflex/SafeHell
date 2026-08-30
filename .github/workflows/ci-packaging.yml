@@ -1,0 +1,30 @@
+name: Packaging
+
+# The Homebrew formula and Scoop manifest are rendered at release time and
+# pushed straight to their taps, so a broken renderer would otherwise surface
+# only on a user's `brew install` or `scoop install`.
+on:
+  push:
+    branches: [develop]
+    paths:
+      - packaging/**
+      - .github/workflows/ci-packaging.yml
+  pull_request:
+    paths:
+      - packaging/**
+      - .github/workflows/ci-packaging.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Render checks
+        run: sh packaging/test_render.sh

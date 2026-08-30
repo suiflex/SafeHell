@@ -1,0 +1,54 @@
+name: Rust
+
+# Scoped to the crate. A change to the installers, the npm package, or the
+# packaging templates has no way to affect these checks, so it must not spend
+# three runners proving it.
+#
+# `push` is narrowed to the default branch while `pull_request` is not narrowed
+# at all: bare `push` fires on every branch, so a pull request would otherwise
+# run this workflow twice for the same commit.
+on:
+  push:
+    branches: [develop]
+    paths:
+      - src/**
+      - tests/fixtures/**
+      - Cargo.toml
+      - Cargo.lock
+      - .github/workflows/ci-rust.yml
+  pull_request:
+    paths:
+      - src/**
+      - tests/fixtures/**
+      - Cargo.toml
+      - Cargo.lock
+      - .github/workflows/ci-rust.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-${{ matrix.os }}
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Test
+        run: cargo test --all-targets
