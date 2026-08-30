@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/suiflex/SafeHell/security/policy
+    about: >-
+      Do not open a public issue for a suspected credential leak, approval
+      bypass, host-key verification flaw, or remote code execution. Follow the
+      security policy instead.

@@ -1,0 +1,35 @@
+name: Feature request
+description: Suggest a new capability or improvement
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do that SafeHell does not let you do today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What would you like SafeHell to do instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: security
+    attributes:
+      label: Effect on the protection boundary
+      description: >-
+        SafeHell's job is to keep credentials out of the agent's reach and to
+        put a human in front of every remote command. If this would widen what
+        runs without approval, weaken redaction, or move a secret closer to the
+        agent, say so here. Saying "none that I can see" is a fine answer.
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches or workarounds you have thought about.
