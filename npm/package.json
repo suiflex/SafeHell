@@ -1,6 +1,6 @@
 {
   "name": "@suiflex/safehell",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "SafeHell — approval-gated SSH broker for AI coding agents",
   "homepage": "https://github.com/suiflex/SafeHell",
   "repository": {
@@ -8,11 +8,21 @@
     "url": "git+https://github.com/suiflex/SafeHell.git"
   },
   "license": "MIT",
-  "keywords": ["ssh", "mcp", "agent", "security", "broker", "safehell"],
+  "keywords": [
+    "ssh",
+    "mcp",
+    "agent",
+    "security",
+    "broker",
+    "safehell"
+  ],
   "bin": {
     "safehell": "bin/safehell.js"
   },
-  "files": ["bin/safehell.js", "install.js"],
+  "files": [
+    "bin/safehell.js",
+    "install.js"
+  ],
   "scripts": {
     "postinstall": "node install.js",
     "test": "node install.js --selftest"
