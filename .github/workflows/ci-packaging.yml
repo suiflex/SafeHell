@@ -26,5 +26,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      # ci-scripts.yml lints the two installers, but this script lives here, so
+      # without this the repository would have a shell script no job checks.
+      - name: Shellcheck
+        run: shellcheck -s sh packaging/test_render.sh
       - name: Render checks
         run: sh packaging/test_render.sh
