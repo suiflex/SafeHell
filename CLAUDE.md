@@ -22,9 +22,14 @@ reintroduce it.
 | Release assets | `safehell-{linux,macos,windows}-{x86_64,aarch64}` |
 
 The MCP server is `shll` and not the product name on purpose: a model types it on every
-tool call, so it is kept short. `integrate install` removes stale `safeshell` and
-`safehell` registrations before adding it, so upgrading never leaves two servers exposing
-the same tools (`src/integrations.rs`).
+tool call, so it is kept short. `integrate install` supports `codex`, `claude`, `cursor`,
+`opencode`, and `antigravity`; omitting `--agent` installs for every agent whose
+configuration is detected in the target directory. It removes stale `safeshell` and
+`safehell` registrations — and any existing `shll` registration, so a re-install also
+repairs a stale binary path — before adding it, so upgrading never leaves two servers
+exposing the same tools (`src/integrations.rs`). Policy seeds in `AGENTS.md`, `CLAUDE.md`,
+and `.gemini/GEMINI.md` are created only when absent and never rewritten; the Cursor and
+Antigravity rule files are SafeHell-owned and refreshed on re-install.
 
 ## Layout
 
@@ -51,7 +56,8 @@ package.
 
 `setup`, `init`, `update [--version]`, `server {add,list,remove}`, `serve [--yes]`,
 `exec <alias> [--reason] [--max-lines] -- <cmd>`, `audit [--tail]`, `mcp`,
-`integrate install [--global] <codex|claude>`, and the hidden `hook <agent>`.
+`integrate install [--global] [--agent <codex,claude,cursor,opencode,antigravity>]`,
+and the hidden `hook <agent>`.
 
 ## Invariants
 

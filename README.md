@@ -217,28 +217,45 @@ Pass the remote command as one quoted shell string so its quoting and operators 
 
 The broker shows the project, endpoint, command, and reason. It decrypts a password only after approval. The first connection to an unknown host also shows its key fingerprint and asks whether to trust it.
 
-Commands are non-interactive: no remote PTY, port forwarding, or private-key-file mode is provided yet.
+## Codex, Claude Code, Cursor, OpenCode, and Antigravity
 
-The host-key trust question is the one prompt `approval_timeout_seconds` does not
-cover, so make the first connection to a new host from an attended broker. In
-unattended mode that prompt has nobody to answer it and the request only ends
-when `timeout_seconds` elapses.
-
-## Codex and Claude Code
-
-With the corresponding agent CLI installed:
+With the corresponding agent CLI installed (Codex and Claude Code only):
 
 ```sh
 # Run from the project root; this is project-local by default.
-safehell integrate install codex
-safehell integrate install claude
+safehell integrate install --agent codex
+safehell integrate install --agent claude
 
-# Optional: install for every project.
-safehell integrate install --global codex
-safehell integrate install --global claude
+# Comma-separated or repeated; omit --agent to install for every agent whose
+# configuration is detected in the target directory.
+safehell integrate install --agent codex,claude,cursor,opencode,antigravity
+safehell integrate install
+
+# Optional: install into the user's global agent configuration.
+safehell integrate install --global --agent codex,claude
 ```
 
-By default, this registers the stdio MCP server as `shll` and installs the `PreToolUse` guard in the current project. The short name is what an agent types on every tool call. Installing removes any earlier `safeshell` or `safehell` registration first, so upgrading does not leave two servers exposing the same tools. Use `--global` explicitly to install it for every project. The guard blocks direct `ssh`, `scp`, `sftp`, `sshpass`, and `rsync` calls. Existing JSON settings are backed up before modification. The MCP server exposes only:
+Every install registers the stdio MCP server as `shll` — the short name is
+what an agent types on every tool call — and seeds the policy line that tells
+the model to prefer SafeHell over direct SSH. Per agent:
+
+|Agent|MCP registration|Policy seed|Guard hook|
+|---|---|---|---|
+|`codex`|`codex mcp add`|`AGENTS.md` (project) or `.codex/AGENTS.md` (global)|`.codex/hooks.json` `PreToolUse`|
+|`claude`|`claude mcp add`|`CLAUDE.md` (project) or `.claude/CLAUDE.md` (global)|`.claude/settings.json` `PreToolUse`|
+|`cursor`|`.cursor/mcp.json`|`.cursor/rules/safehell.mdc`|—|
+|`opencode`|`opencode.json` `mcp` map|`AGENTS.md` (project) or `.config/opencode/AGENTS.md`|—|
+|`antigravity`|`.agents/mcp_config.json` (project) or `~/.gemini/config/mcp_config.json`|`.agents/rules/safehell.md` (project) or `.gemini/GEMINI.md`|—|
+
+Installing removes any earlier `safeshell` or `safehell` registration first
+and replaces an existing `shll` registration, so upgrading never leaves two
+servers exposing the same tools or a stale binary path behind. Policy seeds in
+`AGENTS.md`, `CLAUDE.md`, and `.gemini/GEMINI.md` are created only when absent
+and are never rewritten — the file may hold the user's own instructions.
+Owned files (`.cursor/rules/safehell.mdc`, `.agents/rules/safehell.md`) are
+refreshed on re-install. Existing JSON settings are backed up as
+`*.json.safehell.bak` before modification. The guard blocks direct `ssh`,
+`scp`, `sftp`, `sshpass`, and `rsync` calls. The MCP server exposes only:
 
 - `list_servers`
 - `execute` (write/destructive capable; still requires broker approval)
