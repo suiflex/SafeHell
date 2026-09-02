@@ -104,14 +104,38 @@ enum IntegrateCommand {
         /// Install into the user's global agent configuration.
         #[arg(long)]
         global: bool,
-        agent: Agent,
+        /// Agents to install for, comma-separated or repeated. Omit to
+        /// install for every supported agent.
+        #[arg(long, value_enum, value_delimiter = ',')]
+        agent: Vec<Agent>,
     },
 }
 
-#[derive(Clone, Copy, ValueEnum)]
+#[derive(Clone, Copy, ValueEnum, PartialEq, Eq, Debug)]
 enum Agent {
     Codex,
     Claude,
+    Cursor,
+    Opencode,
+    Antigravity,
+}
+
+impl Agent {
+    fn slug(self) -> &'static str {
+        match self {
+            Agent::Codex => "codex",
+            Agent::Claude => "claude",
+            Agent::Cursor => "cursor",
+            Agent::Opencode => "opencode",
+            Agent::Antigravity => "antigravity",
+        }
+    }
+}
+
+#[derive(Clone)]
+enum AgentSelection {
+    Explicit(Vec<Agent>),
+    All,
 }
 
 #[tokio::main]
@@ -168,8 +192,18 @@ async fn main() -> Result<()> {
         Command::Mcp => mcp::run().await,
         Command::Integrate {
             command: IntegrateCommand::Install { global, agent },
-        } => integrations::install(agent, global),
-        Command::Hook { agent } => integrations::hook(agent),
+        } => integrations::install(agent_selection(agent), global),
+        Command::Hook { agent } => integrations::hook(agent.slug()),
+    }
+}
+
+/// An empty `--agent` means "every supported agent"; listing agents means
+/// "exactly these". Detection narrows the set inside the integration layer.
+fn agent_selection(agents: Vec<Agent>) -> AgentSelection {
+    if agents.is_empty() {
+        AgentSelection::All
+    } else {
+        AgentSelection::Explicit(agents)
     }
 }
 
