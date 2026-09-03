@@ -22,14 +22,28 @@ reintroduce it.
 | Release assets | `safehell-{linux,macos,windows}-{x86_64,aarch64}` |
 
 The MCP server is `shll` and not the product name on purpose: a model types it on every
-tool call, so it is kept short. `integrate install` supports `codex`, `claude`, `cursor`,
-`opencode`, and `antigravity`; omitting `--agent` installs for every agent whose
-configuration is detected in the target directory. It removes stale `safeshell` and
-`safehell` registrations — and any existing `shll` registration, so a re-install also
-repairs a stale binary path — before adding it, so upgrading never leaves two servers
-exposing the same tools (`src/integrations.rs`). Policy seeds in `AGENTS.md`, `CLAUDE.md`,
-and `.gemini/GEMINI.md` are created only when absent and never rewritten; the Cursor and
-Antigravity rule files are SafeHell-owned and refreshed on re-install.
+tool call, so it is kept short. `install` supports `codex`, `claude`, `cursor`,
+`opencode`, `hermes`, `openclaw`, `antigravity`, `windsurf`, `copilot`, `cline`, and
+`roo`. Omitting `--agent` opens a picker on a terminal and otherwise installs only for
+the agents whose own configuration is detected — never for all of them. It removes stale
+`safeshell` and `safehell` registrations — and any existing `shll` registration, so a
+re-install also repairs a stale binary path — before adding it, so upgrading never leaves
+two servers exposing the same tools (`src/integrations.rs`). Policy seeds in `AGENTS.md`,
+`CLAUDE.md`, and `.gemini/GEMINI.md` are created only when absent and never rewritten;
+the Cursor, Antigravity, and Roo rule files are SafeHell-owned and refreshed on
+re-install.
+
+Detection markers are always the agent's own configuration, never a file SafeHell wrote,
+or a re-run would keep adding the target it created last time. `.agents` alone is not an
+Antigravity marker for that reason: Codex, Cursor, and OpenCode all share
+`.agents/skills`.
+
+Where an agent keeps its MCP registry outside the repository, SafeHell writes it there
+rather than seeding a policy that names tools nothing can reach: Hermes and Windsurf are
+user-level in both scopes, and Cline and Roo Code live in the VS Code profile — skipped
+with a notice when the extension has never run, since inventing that tree would leave
+settings no editor loads. Copilot is repository-scoped in both directions, so `--global`
+writes nothing for it.
 
 ## Layout
 
@@ -46,7 +60,7 @@ Antigravity rule files are SafeHell-owned and refreshed on re-install.
 | `remote.rs` | SSH execution, output bounding, file transfer |
 | `security.rs` | secret redaction of agent-facing output |
 | `mcp.rs` | the MCP server and its tools |
-| `integrations.rs` | Codex / Claude Code MCP registration and `PreToolUse` hook |
+| `integrations.rs` | per-agent MCP registration, policy seeds, and the `PreToolUse` hook |
 | `update.rs` | self-update via the published installer |
 
 `scripts/` installers, `packaging/` tap and bucket renderers, `npm/` the npm installer
@@ -56,7 +70,7 @@ package.
 
 `setup`, `init`, `update [--version]`, `server {add,list,remove}`, `serve [--yes]`,
 `exec <alias> [--reason] [--max-lines] -- <cmd>`, `audit [--tail]`, `mcp`,
-`integrate install [--global] [--agent <codex,claude,cursor,opencode,antigravity>]`,
+`install [--global] [--agent <codex,claude,cursor,opencode,hermes,openclaw,antigravity,windsurf,copilot,cline,roo>]`,
 and the hidden `hook <agent>`.
 
 ## Invariants
