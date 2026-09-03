@@ -65,9 +65,15 @@ enum Command {
     /// Run the Model Context Protocol stdio adapter.
     Mcp,
     /// Install project-local agent integration (use --global for user-wide integration).
-    Integrate {
-        #[command(subcommand)]
-        command: IntegrateCommand,
+    Install {
+        /// Install into the user's global agent configuration.
+        #[arg(long)]
+        global: bool,
+        /// Agents to install for, comma-separated or repeated. Omit to pick
+        /// interactively on a terminal, or to install for every agent whose
+        /// configuration is detected.
+        #[arg(long, value_enum, value_delimiter = ',')]
+        agent: Vec<Agent>,
     },
     #[command(hide = true)]
     Hook { agent: Agent },
@@ -98,27 +104,35 @@ enum AuthArg {
     SshAgent,
 }
 
-#[derive(Subcommand)]
-enum IntegrateCommand {
-    Install {
-        /// Install into the user's global agent configuration.
-        #[arg(long)]
-        global: bool,
-        /// Agents to install for, comma-separated or repeated. Omit to
-        /// install for every supported agent.
-        #[arg(long, value_enum, value_delimiter = ',')]
-        agent: Vec<Agent>,
-    },
-}
-
 #[derive(Clone, Copy, ValueEnum, PartialEq, Eq, Debug)]
 enum Agent {
     Codex,
     Claude,
     Cursor,
     Opencode,
+    Hermes,
+    Openclaw,
     Antigravity,
+    Windsurf,
+    Copilot,
+    Cline,
+    Roo,
 }
+
+/// Every agent, in the order the picker lists them.
+const AGENTS: [Agent; 11] = [
+    Agent::Codex,
+    Agent::Claude,
+    Agent::Cursor,
+    Agent::Opencode,
+    Agent::Hermes,
+    Agent::Openclaw,
+    Agent::Antigravity,
+    Agent::Windsurf,
+    Agent::Copilot,
+    Agent::Cline,
+    Agent::Roo,
+];
 
 impl Agent {
     fn slug(self) -> &'static str {
@@ -127,15 +141,33 @@ impl Agent {
             Agent::Claude => "claude",
             Agent::Cursor => "cursor",
             Agent::Opencode => "opencode",
+            Agent::Hermes => "hermes",
+            Agent::Openclaw => "openclaw",
             Agent::Antigravity => "antigravity",
+            Agent::Windsurf => "windsurf",
+            Agent::Copilot => "copilot",
+            Agent::Cline => "cline",
+            Agent::Roo => "roo",
         }
     }
-}
 
-#[derive(Clone)]
-enum AgentSelection {
-    Explicit(Vec<Agent>),
-    All,
+    /// What installing for this agent actually writes, so the picker states
+    /// the cost of a row instead of making the reader guess from a bare name.
+    fn summary(self) -> &'static str {
+        match self {
+            Agent::Codex => "codex mcp add, .codex/hooks.json, AGENTS.md",
+            Agent::Claude => "claude mcp add, .claude/settings.json, CLAUDE.md",
+            Agent::Cursor => ".cursor/mcp.json, .cursor/rules/safehell.mdc",
+            Agent::Opencode => "opencode.json, AGENTS.md",
+            Agent::Hermes => "hermes mcp add",
+            Agent::Openclaw => "openclaw.json, AGENTS.md",
+            Agent::Antigravity => "mcp_config.json, .agents/rules/safehell.md",
+            Agent::Windsurf => "~/.codeium/windsurf/mcp_config.json, AGENTS.md",
+            Agent::Copilot => ".vscode/mcp.json, .github/copilot-instructions.md",
+            Agent::Cline => "VS Code MCP settings, AGENTS.md",
+            Agent::Roo => "VS Code MCP settings, .roo/rules/safehell.md",
+        }
+    }
 }
 
 #[tokio::main]
@@ -190,21 +222,118 @@ async fn main() -> Result<()> {
         }
         Command::Audit { tail } => print_audit(tail),
         Command::Mcp => mcp::run().await,
-        Command::Integrate {
-            command: IntegrateCommand::Install { global, agent },
-        } => integrations::install(agent_selection(agent), global),
+        Command::Install { global, agent } => {
+            let (global, selection) = resolve_install_targets(agent, global)?;
+            integrations::install(selection, global)
+        }
         Command::Hook { agent } => integrations::hook(agent.slug()),
     }
 }
 
-/// An empty `--agent` means "every supported agent"; listing agents means
-/// "exactly these". Detection narrows the set inside the integration layer.
-fn agent_selection(agents: Vec<Agent>) -> AgentSelection {
-    if agents.is_empty() {
-        AgentSelection::All
-    } else {
-        AgentSelection::Explicit(agents)
+/// Exactly three ways to decide what gets installed, in this order:
+///
+/// 1. An explicit `--agent` always wins and is never second-guessed, so
+///    scripts and agents shelling out keep working unchanged.
+/// 2. No `--agent` on a terminal opens the picker. `--global` skips it
+///    because the picker asks for the scope itself.
+/// 3. Otherwise install only for the agents already configured here, rather
+///    than writing every integration into a repository that wanted one.
+fn resolve_install_targets(
+    agents: Vec<Agent>,
+    global: bool,
+) -> Result<(bool, integrations::AgentSelection)> {
+    use std::io::IsTerminal;
+    if !agents.is_empty() {
+        return Ok((global, integrations::AgentSelection::Explicit(agents)));
     }
+    if !global && std::io::stdout().is_terminal() {
+        return run_install_picker();
+    }
+    Ok((global, integrations::AgentSelection::Detected))
+}
+
+const SCOPE_PROJECT: &str = "This project";
+const SCOPE_GLOBAL: &str = "Global (user directory)";
+
+fn run_install_picker() -> Result<(bool, integrations::AgentSelection)> {
+    let scope = inquire::Select::new(
+        "Where do you want to install?",
+        vec![SCOPE_PROJECT, SCOPE_GLOBAL],
+    )
+    .prompt()
+    .context("install cancelled")?;
+    let global = scope == SCOPE_GLOBAL;
+
+    let root = if global {
+        integrations::home()?
+    } else {
+        std::env::current_dir()?
+    };
+    let detected = integrations::detect_installed_agents(&root, global);
+    if detected.is_empty() {
+        println!("No agent configuration found under {}.", root.display());
+    } else {
+        println!(
+            "Detected {} — pre-selected below.",
+            detected
+                .iter()
+                .map(|agent| agent.slug())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+
+    let width = AGENTS
+        .iter()
+        .map(|agent| agent.slug().len())
+        .max()
+        .unwrap_or_default();
+    let rows: Vec<String> = AGENTS
+        .iter()
+        .map(|agent| format!("{:width$}  {}", agent.slug(), agent.summary()))
+        .collect();
+    let defaults: Vec<usize> = AGENTS
+        .iter()
+        .enumerate()
+        .filter(|(_, agent)| detected.contains(agent))
+        .map(|(index, _)| index)
+        .collect();
+
+    // Each row carries its summary, which makes a useful menu but a wrapped
+    // mess once echoed back as the answer. Echo the names alone.
+    let formatter = &|picked: &[inquire::list_option::ListOption<&String>]| -> String {
+        picked
+            .iter()
+            .map(|option| option.value.split_whitespace().next().unwrap_or_default())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    // An empty pick must not mean "install everything": a stray Enter would
+    // then write every integration at once. Ask again, then give up.
+    for attempt in 0..2 {
+        let picked = inquire::MultiSelect::new("Which agents?", rows.clone())
+            .with_default(&defaults)
+            .with_page_size(AGENTS.len())
+            .with_formatter(formatter)
+            .with_help_message(if attempt == 0 {
+                "↑↓ move · space toggle · → all · ← none · enter confirm"
+            } else {
+                "nothing selected — pick at least one, or press Esc to cancel"
+            })
+            .prompt()
+            .context("install cancelled")?;
+        let chosen: Vec<Agent> = picked
+            .iter()
+            .filter_map(|row| {
+                let slug = row.split_whitespace().next()?;
+                AGENTS.iter().copied().find(|agent| agent.slug() == slug)
+            })
+            .collect();
+        if !chosen.is_empty() {
+            return Ok((global, integrations::AgentSelection::Explicit(chosen)));
+        }
+    }
+    bail!("no agent selected; nothing was installed")
 }
 
 fn print_audit(tail: usize) -> Result<()> {
