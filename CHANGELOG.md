@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.3.0](https://github.com/suiflex/SafeHell/compare/v0.2.0...v0.3.0) (2026-09-03)
+
+
+### Features
+
+* accept an agent list in integrate install ([ca957c2](https://github.com/suiflex/SafeHell/commit/ca957c2d644ace515f44ad6ec4db4278a2b1b0d0))
+* draw the brand mark above the install picker ([dc5c881](https://github.com/suiflex/SafeHell/commit/dc5c881306ef83dbceeb037c22048e7ad135a698))
+* register the shll MCP server with cursor opencode and antigravity ([319daaf](https://github.com/suiflex/SafeHell/commit/319daaf4c36f4d1f35d5174a247fb90551a5b08b))
+* replace integrate install with install across every agent ([25a308b](https://github.com/suiflex/SafeHell/commit/25a308b04644afd70ceebafbfdb7aeffe123361a))
+
+
+### Bug Fixes
+
+* derive the windows vscode profile path from the home argument ([5f1ce4c](https://github.com/suiflex/SafeHell/commit/5f1ce4cf48d5d50a8b1f28d0bb7a8393fcb9e856))
+* keep the symlink guard test honest on windows ([d142916](https://github.com/suiflex/SafeHell/commit/d142916e376c56884efca7968b4777d2a477ea56))
+* let npm reach the OIDC exchange ([4894043](https://github.com/suiflex/SafeHell/commit/4894043683de5063569e4e37a2b6a9592cd5ed07))
+* publish npm with setup-node v7 ([0a4d9cd](https://github.com/suiflex/SafeHell/commit/0a4d9cdb54c3d7456bf402f0513dfa1245ff9434))
+
 ## [0.2.0](https://github.com/suiflex/SafeHell/compare/v0.1.0...v0.2.0) (2026-08-30)
 
 
