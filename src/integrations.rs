@@ -6,7 +6,14 @@ use std::process::{Command, Stdio};
 use anyhow::{Context, Result, bail};
 use serde_json::{Map, Value, json};
 
-use crate::{Agent, AgentSelection, config, executable};
+use crate::{Agent, config, executable};
+
+/// How `install` chooses its targets: exactly these agents, or whichever ones
+/// leave their own configuration under the install root.
+pub enum AgentSelection {
+    Explicit(Vec<Agent>),
+    Detected,
+}
 
 /// Name the agent CLIs register the MCP server under. Deliberately short:
 /// it is what a model types on every tool call, not a brand string.
@@ -26,23 +33,46 @@ const CURSOR_POLICY_SEED: &str = "---\nalwaysApply: true\n---\n\nFor remote \
 commands, use the `shll` MCP tools instead of direct `ssh`, `scp`, `sftp`, \
 `sshpass`, or `rsync`; every call is approved in the SafeHell broker terminal.\n";
 
-/// Paths that show an agent is actually used here, so a bare `integrate
-/// install` configures those alone instead of writing every integration into
-/// every repository. Markers are the agent's own configuration directories.
+/// Paths that show an agent is actually used here, so a bare `install`
+/// configures those alone instead of writing every integration into every
+/// repository. A marker is always the agent's own configuration, never
+/// something SafeHell writes: otherwise every re-run would silently add a
+/// target. `.agents` alone is not an Antigravity marker for the same reason —
+/// Codex, Cursor, and OpenCode all share `.agents/skills`.
 const PROJECT_AGENT_MARKERS: &[(Agent, &[&str])] = &[
     (Agent::Codex, &[".codex"]),
     (Agent::Claude, &[".claude"]),
-    (Agent::Cursor, &[".cursor"]),
+    (Agent::Cursor, &[".cursor", ".cursorrules"]),
     (Agent::Opencode, &[".opencode", "opencode.json"]),
-    (Agent::Antigravity, &[".agents"]),
+    (Agent::Hermes, &[".hermes"]),
+    (Agent::Openclaw, &[".openclaw", "openclaw.json"]),
+    (
+        Agent::Antigravity,
+        &[".agents/rules", ".agents/hooks.json", ".agent/rules"],
+    ),
+    (Agent::Windsurf, &[".windsurf", ".devin", ".windsurfrules"]),
+    (
+        Agent::Copilot,
+        &[".github/copilot-instructions.md", ".github/instructions"],
+    ),
+    (Agent::Cline, &[".clinerules"]),
+    (Agent::Roo, &[".roo", ".roorules"]),
 ];
 
+/// Home-directory equivalents. Copilot is absent because its instructions are
+/// repository-scoped, and Cline because the `~/.agents` directory it reads is
+/// also created by a global Codex or Cursor install, which would make it
+/// detect itself on the next run.
 const GLOBAL_AGENT_MARKERS: &[(Agent, &[&str])] = &[
     (Agent::Codex, &[".codex"]),
     (Agent::Claude, &[".claude"]),
     (Agent::Cursor, &[".cursor"]),
     (Agent::Opencode, &[".config/opencode"]),
+    (Agent::Hermes, &[".hermes"]),
+    (Agent::Openclaw, &[".openclaw"]),
     (Agent::Antigravity, &[".gemini"]),
+    (Agent::Windsurf, &[".codeium/windsurf", ".devin"]),
+    (Agent::Roo, &[".roo"]),
 ];
 
 pub fn install(selection: AgentSelection, global: bool) -> Result<()> {
@@ -54,7 +84,7 @@ pub fn install(selection: AgentSelection, global: bool) -> Result<()> {
     };
     let agents = match selection {
         AgentSelection::Explicit(agents) => agents,
-        AgentSelection::All => {
+        AgentSelection::Detected => {
             let detection_root = if global {
                 home()?
             } else {
@@ -66,20 +96,27 @@ pub fn install(selection: AgentSelection, global: bool) -> Result<()> {
             let detected = detect_installed_agents(&detection_root, global);
             if detected.is_empty() {
                 bail!(
-                    "no supported agent configuration found under {}; pass \
-                     --agent codex,claude,cursor,opencode,antigravity to choose explicitly",
-                    detection_root.display()
+                    "no supported agent configuration found under {}; pass --agent \
+                     with one or more of {} to choose explicitly",
+                    detection_root.display(),
+                    crate::AGENTS
+                        .iter()
+                        .map(|agent| agent.slug())
+                        .collect::<Vec<_>>()
+                        .join(",")
                 );
             }
             detected
         }
     };
     let mut written = Vec::new();
+    let home = home()?;
     let root = agent_root(global, project.as_deref())?;
     for agent in agents {
         install_agent(
             agent,
             &root,
+            &home,
             &executable,
             global,
             project.as_deref(),
@@ -137,6 +174,7 @@ fn agent_root(global: bool, project: Option<&Path>) -> Result<PathBuf> {
 fn install_agent(
     agent: Agent,
     root: &Path,
+    home: &Path,
     executable: &Path,
     global: bool,
     project: Option<&Path>,
@@ -208,13 +246,110 @@ fn install_agent(
                 seed_owned_policy(root, ".agents/rules/safehell.md", POLICY_SEED, written)?;
             }
         }
+        Agent::Hermes => {
+            // Hermes keeps servers in `~/.hermes/config.yaml`, which SafeHell
+            // will not hand-edit: rewriting YAML without a parser would risk
+            // the rest of the user's configuration. Its own CLI owns the file.
+            register_mcp_cli(agent, executable, global, project)?;
+            if !global {
+                seed_user_policy(root, "AGENTS.md", written)?;
+            }
+        }
+        Agent::Openclaw => {
+            let config = if global {
+                root.join(".openclaw/openclaw.json")
+            } else {
+                root.join("openclaw.json")
+            };
+            write_openclaw_mcp(&config, executable, written)?;
+            if !global {
+                seed_user_policy(root, "AGENTS.md", written)?;
+            }
+        }
+        Agent::Windsurf => {
+            // Windsurf reads MCP servers from the user directory only, so a
+            // project install still registers there; anything else would seed
+            // a policy naming tools no agent can reach.
+            write_mcp_servers_json(
+                &home.join(".codeium/windsurf/mcp_config.json"),
+                executable,
+                written,
+            )?;
+            if global {
+                seed_user_policy(root, ".codeium/windsurf/memories/global_rules.md", written)?;
+            } else {
+                seed_user_policy(root, "AGENTS.md", written)?;
+            }
+        }
+        Agent::Copilot => {
+            // Copilot instructions and `.vscode/mcp.json` are both
+            // repository-scoped; there is no documented user-level equivalent
+            // to guess at.
+            if global {
+                eprintln!(
+                    "copilot has no documented user-level configuration; run without --global"
+                );
+            } else {
+                write_vscode_mcp(&root.join(".vscode/mcp.json"), executable, written)?;
+                seed_user_policy(root, ".github/copilot-instructions.md", written)?;
+            }
+        }
+        Agent::Cline | Agent::Roo => {
+            // Both store MCP servers in the VS Code profile rather than the
+            // repository, so the registration is user-level in either scope.
+            match vscode_mcp_settings(home, agent) {
+                Some(path) => write_mcp_servers_json(&path, executable, written)?,
+                None => eprintln!(
+                    "{} is not installed in this VS Code profile; skipped its MCP registration",
+                    agent.slug()
+                ),
+            }
+            match (agent, global) {
+                (Agent::Cline, true) => seed_user_policy(root, ".agents/AGENTS.md", written)?,
+                (Agent::Roo, true) => {
+                    seed_owned_policy(root, ".roo/rules/safehell.md", POLICY_SEED, written)?
+                }
+                _ => seed_user_policy(root, "AGENTS.md", written)?,
+            }
+        }
     }
     Ok(())
 }
 
-/// Report which agents leave configuration under `root`, so a bare `integrate
-/// install` configures those alone.
-fn detect_installed_agents(root: &Path, global: bool) -> Vec<Agent> {
+/// Directory VS Code keeps per-extension state in. Cline and Roo Code both
+/// store their MCP settings there rather than in the repository.
+#[cfg(target_os = "macos")]
+fn vscode_user_dir(home: &Path) -> Option<PathBuf> {
+    Some(home.join("Library/Application Support/Code/User"))
+}
+
+#[cfg(windows)]
+fn vscode_user_dir(_home: &Path) -> Option<PathBuf> {
+    std::env::var_os("APPDATA").map(|appdata| PathBuf::from(appdata).join("Code/User"))
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
+fn vscode_user_dir(home: &Path) -> Option<PathBuf> {
+    Some(home.join(".config/Code/User"))
+}
+
+/// `None` when the extension has never run here. The directory is not created:
+/// inventing a VS Code profile tree would leave settings no editor reads.
+fn vscode_mcp_settings(home: &Path, agent: Agent) -> Option<PathBuf> {
+    let extension = match agent {
+        Agent::Cline => "saoudrizwan.claude-dev",
+        Agent::Roo => "rooveterinaryinc.roo-cline",
+        _ => return None,
+    };
+    let directory = vscode_user_dir(home)?.join("globalStorage").join(extension);
+    directory
+        .is_dir()
+        .then(|| directory.join("settings/cline_mcp_settings.json"))
+}
+
+/// Report which agents leave configuration under `root`, so a bare `install`
+/// configures those alone.
+pub fn detect_installed_agents(root: &Path, global: bool) -> Vec<Agent> {
     let markers = if global {
         GLOBAL_AGENT_MARKERS
     } else {
@@ -315,6 +450,39 @@ fn write_opencode_mcp(path: &Path, executable: &Path, written: &mut Vec<String>)
     Ok(())
 }
 
+/// OpenClaw nests its registry one level deeper, under `mcp.servers`, and
+/// names the transport rather than inferring it from the shape.
+fn write_openclaw_mcp(path: &Path, executable: &Path, written: &mut Vec<String>) -> Result<()> {
+    let mut document = read_json_object(path)?;
+    let mcp = servers_map(&mut document, "mcp", path)?;
+    let mut nested = Value::Object(std::mem::take(mcp));
+    let servers = servers_map(&mut nested, "servers", path)?;
+    purge_legacy_servers(servers);
+    servers.insert(
+        MCP_SERVER.to_owned(),
+        json!({"command": executable, "args": ["mcp"], "transport": "stdio"}),
+    );
+    document["mcp"] = nested;
+    write_json(path, &document)?;
+    record(path, written);
+    Ok(())
+}
+
+/// VS Code reads `.vscode/mcp.json` under `servers`, not `mcpServers`, and
+/// wants the transport named explicitly.
+fn write_vscode_mcp(path: &Path, executable: &Path, written: &mut Vec<String>) -> Result<()> {
+    let mut document = read_json_object(path)?;
+    let servers = servers_map(&mut document, "servers", path)?;
+    purge_legacy_servers(servers);
+    servers.insert(
+        MCP_SERVER.to_owned(),
+        json!({"type": "stdio", "command": executable, "args": ["mcp"]}),
+    );
+    write_json(path, &document)?;
+    record(path, written);
+    Ok(())
+}
+
 fn read_json_object(path: &Path) -> Result<Value> {
     if !path.exists() {
         return Ok(json!({}));
@@ -393,6 +561,11 @@ fn unregister_legacy_mcp(agent: Agent, global: bool, project: Option<&Path>) {
                 command.arg(name);
                 command
             }
+            Agent::Hermes => {
+                let mut command = Command::new("hermes");
+                command.args(["mcp", "remove", name]);
+                command
+            }
             _ => continue,
         };
         let _ = command.stdout(Stdio::null()).stderr(Stdio::null()).status();
@@ -406,6 +579,15 @@ fn register_mcp_cli(
     project: Option<&Path>,
 ) -> Result<()> {
     unregister_legacy_mcp(agent, global, project);
+    if let Agent::Hermes = agent {
+        // Hermes takes the executable and its arguments as separate flags
+        // rather than after a `--` separator.
+        let mut command = Command::new("hermes");
+        command.args(["mcp", "add", MCP_SERVER, "--command"]);
+        command.arg(executable);
+        command.args(["--arg", "mcp"]);
+        return run_registration(command);
+    }
     let mut command = match agent {
         Agent::Codex => {
             let mut command = Command::new("codex");
@@ -428,9 +610,12 @@ fn register_mcp_cli(
             agent.slug()
         ),
     };
+    command.arg(executable).arg("mcp");
+    run_registration(command)
+}
+
+fn run_registration(mut command: Command) -> Result<()> {
     let status = command
-        .arg(executable)
-        .arg("mcp")
         .status()
         .context("agent CLI is not installed or not executable")?;
     if !status.success() {
@@ -506,7 +691,7 @@ fn shell_quote(value: &str) -> String {
     format!("\"{value}\"")
 }
 
-fn home() -> Result<PathBuf> {
+pub fn home() -> Result<PathBuf> {
     std::env::home_dir().context("cannot determine home directory")
 }
 
@@ -548,8 +733,16 @@ mod tests {
         let root = temp_root("cursor");
         let executable = fake_executable(&root);
         let mut written = Vec::new();
-        install_agent(Agent::Cursor, &root, &executable, false, None, &mut written)
-            .expect("install cursor");
+        install_agent(
+            Agent::Cursor,
+            &root,
+            &root,
+            &executable,
+            false,
+            None,
+            &mut written,
+        )
+        .expect("install cursor");
 
         let mcp: Value = serde_json::from_str(
             &fs::read_to_string(root.join(".cursor/mcp.json")).expect("read mcp.json"),
@@ -579,8 +772,16 @@ mod tests {
 
         let executable = fake_executable(&root);
         let mut written = Vec::new();
-        install_agent(Agent::Cursor, &root, &executable, false, None, &mut written)
-            .expect("install cursor");
+        install_agent(
+            Agent::Cursor,
+            &root,
+            &root,
+            &executable,
+            false,
+            None,
+            &mut written,
+        )
+        .expect("install cursor");
 
         let mcp: Value = serde_json::from_str(&fs::read_to_string(&mcp).expect("read mcp.json"))
             .expect("parse mcp.json");
@@ -597,6 +798,7 @@ mod tests {
         let mut written = Vec::new();
         install_agent(
             Agent::Opencode,
+            &root,
             &root,
             &executable,
             false,
@@ -628,6 +830,7 @@ mod tests {
         let error = install_agent(
             Agent::Opencode,
             &root,
+            &root,
             &executable,
             false,
             None,
@@ -649,6 +852,7 @@ mod tests {
         let mut written = Vec::new();
         install_agent(
             Agent::Antigravity,
+            &root,
             &root,
             &executable,
             false,
@@ -747,6 +951,169 @@ mod tests {
         // Global markers differ: `.claude` counts, `.opencode` does not
         // (the global OpenCode marker is `.config/opencode`).
         assert_eq!(detect_installed_agents(&root, true), vec![Agent::Claude]);
+    }
+
+    #[test]
+    fn bare_agents_directory_is_not_an_antigravity_marker() {
+        // Codex, Cursor, and OpenCode all write `.agents/skills`, so treating
+        // `.agents` as a marker would add Antigravity on every re-run.
+        let root = temp_root("agents-dir");
+        fs::create_dir_all(root.join(".agents/skills")).expect("create .agents/skills");
+        assert!(detect_installed_agents(&root, false).is_empty());
+        fs::create_dir_all(root.join(".agents/rules")).expect("create .agents/rules");
+        assert_eq!(
+            detect_installed_agents(&root, false),
+            vec![Agent::Antigravity]
+        );
+    }
+
+    #[test]
+    fn openclaw_install_nests_servers_under_mcp() {
+        let root = temp_root("openclaw");
+        let executable = fake_executable(&root);
+        let mut written = Vec::new();
+        fs::write(
+            root.join("openclaw.json"),
+            r#"{"mcp":{"servers":{"docs":{"url":"https://example.test"},"safeshell":{}}},"plugins":{}}"#,
+        )
+        .expect("seed openclaw.json");
+        install_agent(
+            Agent::Openclaw,
+            &root,
+            &root,
+            &executable,
+            false,
+            None,
+            &mut written,
+        )
+        .expect("install openclaw");
+
+        let config: Value = serde_json::from_str(
+            &fs::read_to_string(root.join("openclaw.json")).expect("read openclaw.json"),
+        )
+        .expect("parse openclaw.json");
+        assert_eq!(
+            config.pointer("/mcp/servers/shll/command"),
+            Some(&json!(executable))
+        );
+        assert_eq!(
+            config.pointer("/mcp/servers/shll/transport"),
+            Some(&json!("stdio"))
+        );
+        assert_eq!(config.pointer("/mcp/servers/safeshell"), None);
+        // Unrelated servers and top-level keys survive the merge.
+        assert!(config.pointer("/mcp/servers/docs").is_some());
+        assert!(config.pointer("/plugins").is_some());
+    }
+
+    #[test]
+    fn copilot_install_uses_the_vscode_servers_key() {
+        let root = temp_root("copilot");
+        let executable = fake_executable(&root);
+        let mut written = Vec::new();
+        install_agent(
+            Agent::Copilot,
+            &root,
+            &root,
+            &executable,
+            false,
+            None,
+            &mut written,
+        )
+        .expect("install copilot");
+
+        let config: Value = serde_json::from_str(
+            &fs::read_to_string(root.join(".vscode/mcp.json")).expect("read .vscode/mcp.json"),
+        )
+        .expect("parse .vscode/mcp.json");
+        // VS Code reads `servers`, not `mcpServers`, and needs the transport.
+        assert_eq!(config.pointer("/mcpServers"), None);
+        assert_eq!(config.pointer("/servers/shll/type"), Some(&json!("stdio")));
+        assert_eq!(
+            config.pointer("/servers/shll/command"),
+            Some(&json!(executable))
+        );
+        assert!(root.join(".github/copilot-instructions.md").exists());
+    }
+
+    #[test]
+    fn windsurf_registers_in_the_user_directory_even_for_a_project() {
+        let root = temp_root("windsurf");
+        let executable = fake_executable(&root);
+        let mut written = Vec::new();
+        install_agent(
+            Agent::Windsurf,
+            &root,
+            &root,
+            &executable,
+            false,
+            None,
+            &mut written,
+        )
+        .expect("install windsurf");
+
+        let config: Value = serde_json::from_str(
+            &fs::read_to_string(root.join(".codeium/windsurf/mcp_config.json"))
+                .expect("read windsurf mcp_config.json"),
+        )
+        .expect("parse windsurf mcp_config.json");
+        assert_eq!(
+            config.pointer("/mcpServers/shll/args"),
+            Some(&json!(["mcp"]))
+        );
+        assert!(root.join("AGENTS.md").exists());
+    }
+
+    #[test]
+    fn cline_skips_registration_without_a_vscode_profile() {
+        let root = temp_root("cline");
+        let executable = fake_executable(&root);
+        let mut written = Vec::new();
+        assert!(vscode_mcp_settings(&root, Agent::Cline).is_none());
+        install_agent(
+            Agent::Cline,
+            &root,
+            &root,
+            &executable,
+            false,
+            None,
+            &mut written,
+        )
+        .expect("install cline");
+        // The policy is still seeded, but no VS Code profile tree is invented.
+        assert_eq!(written, vec!["AGENTS.md"]);
+    }
+
+    #[test]
+    fn roo_registers_in_an_existing_vscode_profile() {
+        let root = temp_root("roo");
+        let executable = fake_executable(&root);
+        let mut written = Vec::new();
+        let extension = vscode_user_dir(&root)
+            .expect("vscode user dir")
+            .join("globalStorage/rooveterinaryinc.roo-cline");
+        fs::create_dir_all(&extension).expect("create roo global storage");
+        install_agent(
+            Agent::Roo,
+            &root,
+            &root,
+            &executable,
+            true,
+            None,
+            &mut written,
+        )
+        .expect("install roo");
+
+        let settings: Value = serde_json::from_str(
+            &fs::read_to_string(extension.join("settings/cline_mcp_settings.json"))
+                .expect("read roo mcp settings"),
+        )
+        .expect("parse roo mcp settings");
+        assert_eq!(
+            settings.pointer("/mcpServers/shll/command"),
+            Some(&json!(executable))
+        );
+        assert!(root.join(".roo/rules/safehell.md").exists());
     }
 
     #[test]
