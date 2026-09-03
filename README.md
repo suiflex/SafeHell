@@ -217,23 +217,39 @@ Pass the remote command as one quoted shell string so its quoting and operators 
 
 The broker shows the project, endpoint, command, and reason. It decrypts a password only after approval. The first connection to an unknown host also shows its key fingerprint and asks whether to trust it.
 
-## Codex, Claude Code, Cursor, OpenCode, and Antigravity
-
-With the corresponding agent CLI installed (Codex and Claude Code only):
+## Agent integration
 
 ```sh
 # Run from the project root; this is project-local by default.
-safehell integrate install --agent codex
-safehell integrate install --agent claude
+safehell install --agent codex
+safehell install --agent claude
 
-# Comma-separated or repeated; omit --agent to install for every agent whose
-# configuration is detected in the target directory.
-safehell integrate install --agent codex,claude,cursor,opencode,antigravity
-safehell integrate install
+# Comma-separated or repeated.
+safehell install --agent codex,claude,cursor,opencode
+
+# Omit --agent to pick from a menu on a terminal.
+safehell install
 
 # Optional: install into the user's global agent configuration.
-safehell integrate install --global --agent codex,claude
+safehell install --global --agent codex,claude
 ```
+
+`install` chooses its targets in exactly one of three ways:
+
+1. An explicit `--agent` always wins and is never second-guessed, so scripts
+   keep working unchanged.
+2. No `--agent` on a terminal opens the picker, which lists what each target
+   writes and pre-selects the agents already configured here. `--global` skips
+   the picker because the picker asks for the scope itself.
+3. No `--agent` and no terminal — a script, a CI job, or an agent shelling out
+   — installs only for the agents whose own configuration is already present.
+   When nothing is detected it installs nothing and names the choices.
+
+Detection reads the agent's own configuration (`.codex/`, `.claude/`,
+`.cursor/`, `opencode.json`, `.hermes/`, `openclaw.json`, `.agents/rules/`,
+`.windsurf/`, `.github/copilot-instructions.md`, `.clinerules`, `.roo/`) and
+never a file SafeHell wrote, so a re-run cannot add a target it created last
+time.
 
 Every install registers the stdio MCP server as `shll` — the short name is
 what an agent types on every tool call — and seeds the policy line that tells
@@ -245,7 +261,24 @@ the model to prefer SafeHell over direct SSH. Per agent:
 |`claude`|`claude mcp add`|`CLAUDE.md` (project) or `.claude/CLAUDE.md` (global)|`.claude/settings.json` `PreToolUse`|
 |`cursor`|`.cursor/mcp.json`|`.cursor/rules/safehell.mdc`|—|
 |`opencode`|`opencode.json` `mcp` map|`AGENTS.md` (project) or `.config/opencode/AGENTS.md`|—|
+|`hermes`|`hermes mcp add`|`AGENTS.md` (project only)|—|
+|`openclaw`|`openclaw.json` `mcp.servers` map|`AGENTS.md` (project only)|—|
 |`antigravity`|`.agents/mcp_config.json` (project) or `~/.gemini/config/mcp_config.json`|`.agents/rules/safehell.md` (project) or `.gemini/GEMINI.md`|—|
+|`windsurf`|`~/.codeium/windsurf/mcp_config.json`|`AGENTS.md` (project) or `.codeium/windsurf/memories/global_rules.md`|—|
+|`copilot`|`.vscode/mcp.json` `servers` map|`.github/copilot-instructions.md`|—|
+|`cline`|VS Code `cline_mcp_settings.json`|`AGENTS.md` (project) or `.agents/AGENTS.md`|—|
+|`roo`|VS Code `cline_mcp_settings.json`|`AGENTS.md` (project) or `.roo/rules/safehell.md`|—|
+
+Four of those keep their MCP registry outside the repository, so SafeHell
+writes it where the agent actually reads it rather than leaving a policy that
+names tools nothing can reach: Windsurf and Hermes are user-level in both
+scopes, and Cline and Roo Code store theirs in the VS Code profile — skipped
+with a notice when that extension has never run here, because inventing the
+profile tree would leave settings no editor loads. Copilot is the mirror case:
+its instructions and `.vscode/mcp.json` are both repository-scoped, so
+`--global` writes nothing for it instead of guessing at a user-level path.
+Hermes keeps servers in `~/.hermes/config.yaml`, which its own CLI owns —
+SafeHell shells out to `hermes mcp add` rather than rewriting YAML.
 
 Installing removes any earlier `safeshell` or `safehell` registration first
 and replaces an existing `shll` registration, so upgrading never leaves two
