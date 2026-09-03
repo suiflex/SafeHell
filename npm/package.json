@@ -1,6 +1,6 @@
 {
   "name": "@suiflex/safehell",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "SafeHell — approval-gated SSH broker for AI coding agents",
   "homepage": "https://github.com/suiflex/SafeHell",
   "repository": {
