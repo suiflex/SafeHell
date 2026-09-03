@@ -115,9 +115,15 @@ rather than a token.
 cargo fmt --all -- --check
 cargo clippy --all-targets -- -D warnings
 cargo test --all-targets
-shellcheck -s sh scripts/install.sh tests/install_sh_test.sh
+shellcheck -s sh scripts/install.sh tests/install_sh_test.sh tests/logo.sh
 sh tests/install_sh_test.sh
 node npm/install.js --selftest
+sh tests/logo.sh --check
 ```
+
+`tests/logo.sh --check` regenerates the picker's logo grid from
+`assets/brand/logo-mark.svg` and fails if the committed grid drifted from it. It needs
+macOS `qlmanage` and Pillow and skips itself without them; the grid is committed, so
+building never needs either.
 
 `AGENTS.md` is a symlink to this file. Edit this one.

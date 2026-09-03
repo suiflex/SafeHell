@@ -256,10 +256,12 @@ const SCOPE_PROJECT: &str = "This project";
 const SCOPE_GLOBAL: &str = "Global (user directory)";
 
 fn run_install_picker() -> Result<(bool, integrations::AgentSelection)> {
+    println!("{}\n", theme::banner());
     let scope = inquire::Select::new(
         "Where do you want to install?",
         vec![SCOPE_PROJECT, SCOPE_GLOBAL],
     )
+    .with_render_config(theme::render_config())
     .prompt()
     .context("install cancelled")?;
     let global = scope == SCOPE_GLOBAL;
@@ -315,6 +317,7 @@ fn run_install_picker() -> Result<(bool, integrations::AgentSelection)> {
             .with_default(&defaults)
             .with_page_size(AGENTS.len())
             .with_formatter(formatter)
+            .with_render_config(theme::render_config())
             .with_help_message(if attempt == 0 {
                 "↑↓ move · space toggle · → all · ← none · enter confirm"
             } else {
@@ -440,4 +443,116 @@ fn run_server_command(command: ServerCommand) -> Result<()> {
 
 fn executable() -> Result<PathBuf> {
     std::env::current_exe().context("cannot locate safehell executable")
+}
+
+/// The brand mark and colours, drawn with nothing but ANSI escapes so no
+/// colour crate is needed. Everything collapses to plain text when the output
+/// is not a terminal or `NO_COLOR` is set.
+mod theme {
+    use std::io::IsTerminal;
+
+    use inquire::ui::{Attributes, Color, RenderConfig, StyleSheet, Styled};
+
+    /// `#4ade80`, the brand green, and `#fafafa` from the wordmark.
+    const ACCENT: &str = "\x1b[38;5;114m";
+    const BOLD_FG: &str = "\x1b[1;38;5;255m";
+    const RESET: &str = "\x1b[0m";
+
+    fn enabled() -> bool {
+        std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none()
+    }
+
+    /// The padlock-and-prompt mark from `assets/brand/logo-mark.svg`, sampled
+    /// to twelve by twelve. `g` is the lock, `d` the shell prompt cut into it,
+    /// a space is outside the mark. Regenerate with `sh tests/logo.sh`.
+    const LOGO: [&str; 12] = [
+        "    gggg    ",
+        "   gggggg   ",
+        "  gg    gg  ",
+        "  gg    gg  ",
+        "  gg    gg  ",
+        "gggggggggggg",
+        "gggggggggggg",
+        "ggddgggggggg",
+        "gggddggggggg",
+        "ggddgggggggg",
+        "ggggggdddggg",
+        "gggggggggggg",
+    ];
+    const LOCK: &str = "\x1b[38;5;114m";
+    const LOCK_BG: &str = "\x1b[48;5;114m";
+    const CUT: &str = "\x1b[38;5;234m";
+    const CUT_BG: &str = "\x1b[48;5;234m";
+    const DEFAULT_BG: &str = "\x1b[49m";
+
+    /// Draw the mark two pixel rows per line: `▀` paints the upper half in the
+    /// foreground and the lower half in the background, so a text cell carries
+    /// two pixels. Anything outside the mark keeps the terminal's own
+    /// background rather than punching a coloured hole in it.
+    fn logo_rows() -> Vec<String> {
+        let cell = |upper: u8, lower: u8| match (upper, lower) {
+            (b' ', b' ') => " ".to_owned(),
+            (b' ', lower) => {
+                let colour = if lower == b'g' { LOCK } else { CUT };
+                format!("{colour}{DEFAULT_BG}▄{RESET}")
+            }
+            (upper, b' ') => {
+                let colour = if upper == b'g' { LOCK } else { CUT };
+                format!("{colour}{DEFAULT_BG}▀{RESET}")
+            }
+            (upper, lower) => {
+                let top = if upper == b'g' { LOCK } else { CUT };
+                let bottom = if lower == b'g' { LOCK_BG } else { CUT_BG };
+                format!("{top}{bottom}▀{RESET}")
+            }
+        };
+        LOGO.chunks(2)
+            .map(|pair| {
+                let upper = pair[0].as_bytes();
+                let lower = pair[1].as_bytes();
+                (0..upper.len())
+                    .map(|column| cell(upper[column], lower[column]))
+                    .collect()
+            })
+            .collect()
+    }
+
+    /// The mark beside the wordmark, split the way the logo splits it: `Safe`
+    /// in the accent, `Hell` plain. Falls back to plain text whenever colour is
+    /// off, because the mark is made of colour and would otherwise be a smear
+    /// of half-blocks.
+    pub(super) fn banner() -> String {
+        if !enabled() {
+            return "SafeHell".to_owned();
+        }
+        let wordmark = format!("{ACCENT}Safe{RESET}{BOLD_FG}Hell{RESET}");
+        logo_rows()
+            .into_iter()
+            .enumerate()
+            .map(|(index, row)| {
+                if index == 2 {
+                    format!("  {row}   {wordmark}")
+                } else {
+                    format!("  {row}")
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// Tint the picker to match the mark: green for the prompt and the
+    /// selection, dim for the help line.
+    pub(super) fn render_config() -> RenderConfig<'static> {
+        if !enabled() {
+            return RenderConfig::empty();
+        }
+        let accent = Color::LightGreen;
+        RenderConfig::default()
+            .with_prompt_prefix(Styled::new("◇").with_fg(accent))
+            .with_answered_prompt_prefix(Styled::new("◆").with_fg(accent))
+            .with_highlighted_option_prefix(Styled::new("›").with_fg(accent))
+            .with_selected_checkbox(Styled::new("✓").with_fg(accent))
+            .with_answer(StyleSheet::new().with_fg(accent))
+            .with_help_message(StyleSheet::new().with_attr(Attributes::ITALIC))
+    }
 }
