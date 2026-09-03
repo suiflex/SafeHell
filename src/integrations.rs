@@ -323,9 +323,12 @@ fn vscode_user_dir(home: &Path) -> Option<PathBuf> {
     Some(home.join("Library/Application Support/Code/User"))
 }
 
+/// Derived from `home` rather than read from `%APPDATA%` so the function stays
+/// pure and testable. A redirected roaming profile is missed, and a miss only
+/// skips the registration with a notice.
 #[cfg(windows)]
-fn vscode_user_dir(_home: &Path) -> Option<PathBuf> {
-    std::env::var_os("APPDATA").map(|appdata| PathBuf::from(appdata).join("Code/User"))
+fn vscode_user_dir(home: &Path) -> Option<PathBuf> {
+    Some(home.join("AppData/Roaming/Code/User"))
 }
 
 #[cfg(not(any(target_os = "macos", windows)))]
