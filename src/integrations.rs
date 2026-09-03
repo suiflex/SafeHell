@@ -930,6 +930,13 @@ mod tests {
         fs::write(root.join("CLAUDE.md"), "# Real file\n").expect("seed target");
         #[cfg(unix)]
         std::os::unix::fs::symlink("CLAUDE.md", root.join("AGENTS.md")).expect("create symlink");
+        // Windows needs Developer Mode or elevation to create one. Without the
+        // symlink there is nothing here to guard against, so skip rather than
+        // assert that a plain missing file is left alone.
+        #[cfg(windows)]
+        if std::os::windows::fs::symlink_file("CLAUDE.md", root.join("AGENTS.md")).is_err() {
+            return;
+        }
         let mut written = Vec::new();
         seed_user_policy(&root, "AGENTS.md", &mut written).expect("seed user policy");
         assert!(written.is_empty());
