@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.4.0](https://github.com/suiflex/SafeHell/compare/v0.3.0...v0.4.0) (2026-09-04)
+
+
+### ⚠ BREAKING CHANGES
+
+* the MIT option is withdrawn. Anyone who took SafeHell under MIT must move to Apache-2.0 to keep using releases from this version on.
+
+### Features
+
+* license SafeHell under Apache-2.0 only ([b34ed94](https://github.com/suiflex/SafeHell/commit/b34ed9411811e8577f62286c4b25c24d17ca1eb6))
+
 ## [0.3.0](https://github.com/suiflex/SafeHell/compare/v0.2.0...v0.3.0) (2026-09-03)
 
 
