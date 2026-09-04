@@ -315,4 +315,4 @@ cargo clippy --all-targets -- -D warnings
 cargo test --all-targets
 ```
 
-SafeHell is dual-licensed under Apache-2.0 or MIT.
+SafeHell is licensed under [Apache 2.0](LICENSE).
