@@ -54,7 +54,7 @@ def main():
             "version": TAG.lstrip("v"),
             "description": "Approval-gated SSH broker for AI coding agents",
             "homepage": f"https://github.com/{REPO}",
-            "license": "Apache-2.0",
+            "license": "MIT",
             "architecture": architecture,
             "bin": "safehell.exe",
             "checkver": "github",

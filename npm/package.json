@@ -7,7 +7,7 @@
     "type": "git",
     "url": "git+https://github.com/suiflex/SafeHell.git"
   },
-  "license": "Apache-2.0",
+  "license": "MIT",
   "keywords": [
     "ssh",
     "mcp",

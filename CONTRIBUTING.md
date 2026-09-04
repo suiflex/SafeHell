@@ -141,6 +141,7 @@ that way. You do not need to label them. Two things are asked:
 
 ## License
 
-SafeHell is licensed under [Apache 2.0](LICENSE). By contributing, you agree
-that your contribution is licensed under the same terms. There is no CLA to
-sign.
+SafeHell is dual-licensed under [MIT](LICENSE-MIT) and
+[Apache 2.0](LICENSE-APACHE); users may choose either. By contributing, you
+agree that your contribution is licensed under the same terms. There is no CLA
+to sign.
