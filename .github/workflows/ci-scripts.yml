@@ -10,11 +10,13 @@ on:
     paths:
       - scripts/**
       - tests/install_sh_test.sh
+      - .github/scripts/**
       - .github/workflows/ci-scripts.yml
   pull_request:
     paths:
       - scripts/**
       - tests/install_sh_test.sh
+      - .github/scripts/**
       - .github/workflows/ci-scripts.yml
 
 permissions:
@@ -41,7 +43,8 @@ jobs:
         run: shellcheck -s sh scripts/install.sh tests/install_sh_test.sh
       - name: Installer acceptance checks
         run: sh tests/install_sh_test.sh
-
+      - name: Changelog attribution checks
+        run: python3 .github/scripts/test_attribute_changelog.py
   windows:
     runs-on: windows-latest
     steps:
