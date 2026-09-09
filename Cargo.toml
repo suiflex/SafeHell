@@ -32,6 +32,9 @@ tokio = { version = "1.48", features = ["fs", "io-util", "macros", "rt-multi-thr
 toml = "0.9"
 uuid = { version = "1.18", features = ["serde", "v4"] }
 zeroize = { version = "1.8", features = ["derive"] }
+winit = "0.30"
+tray-icon = "0.24"
+muda = "0.19"
 
 [profile.release]
 lto = "thin"
