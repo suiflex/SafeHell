@@ -37,6 +37,14 @@ pub struct State {
 const MAX_JOBS: usize = 16;
 
 pub async fn serve(auto_approve: bool) -> Result<()> {
+    let (_tx, rx) = tokio::sync::watch::channel(false);
+    serve_with_shutdown(auto_approve, rx).await
+}
+
+pub async fn serve_with_shutdown(
+    auto_approve: bool,
+    mut shutdown: tokio::sync::watch::Receiver<bool>,
+) -> Result<()> {
     let listener = ipc::listener()?;
     let state = Arc::new(State {
         auto_approve,
@@ -51,26 +59,43 @@ pub async fn serve(auto_approve: bool) -> Result<()> {
         );
     }
     loop {
-        let stream = listener.accept().await?;
-        let state = Arc::clone(&state);
-        tokio::spawn(async move {
-            let response = match ipc::receive(&stream).await {
-                Ok(request) => {
-                    handle(request, &state)
-                        .await
-                        .unwrap_or_else(|error| ipc::Response::Error {
+        tokio::select! {
+            accept_res = listener.accept() => {
+                let stream = accept_res?;
+                let state = Arc::clone(&state);
+                tokio::spawn(async move {
+                    let response = match ipc::receive(&stream).await {
+                        Ok(request) => {
+                            handle(request, &state)
+                                .await
+                                .unwrap_or_else(|error| ipc::Response::Error {
+                                    message: format!("{error:#}"),
+                                })
+                        }
+                        Err(error) => ipc::Response::Error {
                             message: format!("{error:#}"),
-                        })
-                }
-                Err(error) => ipc::Response::Error {
-                    message: format!("{error:#}"),
-                },
-            };
-            if let Err(error) = ipc::respond(&stream, &response).await {
-                eprintln!("broker response failed: {error:#}");
+                        },
+                    };
+                    if let Err(error) = ipc::respond(&stream, &response).await {
+                        eprintln!("broker response failed: {error:#}");
+                    }
+                });
             }
-        });
+            _ = shutdown.changed() => {
+                if *shutdown.borrow() {
+                    break;
+                }
+            }
+        }
     }
+    drop(listener);
+    #[cfg(unix)]
+    {
+        if let Ok(socket_path) = crate::vault::socket_path() {
+            let _ = std::fs::remove_file(socket_path);
+        }
+    }
+    Ok(())
 }
 
 async fn handle(request: ipc::Request, state: &Arc<State>) -> Result<ipc::Response> {
