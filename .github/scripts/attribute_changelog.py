@@ -135,18 +135,19 @@ def attribute(text, resolve=gh_author, history=prev_emails, product="SafeHell"):
     if not contributors:
         return text
 
+    sorted_contributors = sorted(contributors)
     thanks = ["", "### Thanks", ""]
-    for tok in sorted(contributors):
+    for tok in sorted_contributors:
         thanks.append(f"* {tok}")
 
     if new_contributors:
+        sorted_new_contributors = sorted(new_contributors)
         thanks.extend(["", "### New Contributors", ""])
-        for tok in sorted(new_contributors):
+        for tok in sorted_new_contributors:
             thanks.append(f"* {tok} made their first contribution")
 
     rebuilt = before + "\n".join(lines).rstrip() + "\n" + "\n".join(thanks) + "\n\n" + after
     return rebuilt.rstrip("\n") + "\n"
-
 
 def main():
     dst = sys.argv[1] if len(sys.argv) > 1 else "CHANGELOG.md"
