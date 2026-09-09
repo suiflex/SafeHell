@@ -85,12 +85,12 @@ pub fn create_brand_icon(r: u8, g: u8, b: u8) -> Icon {
     const SIZE: usize = 32;
     let mut rgba = Vec::with_capacity(SIZE * SIZE * 4);
 
-    for y in 0..SIZE {
-        for x in 0..SIZE {
-            let coverage = pixel_coverage(x, y);
-            let alpha = (coverage * 255.0).round().clamp(0.0, 255.0) as u8;
-            rgba.extend_from_slice(&[r, g, b, alpha]);
-        }
+    for index in 0..(SIZE * SIZE) {
+        let x = index % SIZE;
+        let y = index / SIZE;
+        let coverage = pixel_coverage(x, y);
+        let alpha = (coverage * 255.0).round().clamp(0.0, 255.0) as u8;
+        rgba.extend_from_slice(&[r, g, b, alpha]);
     }
 
     Icon::from_rgba(rgba, SIZE as u32, SIZE as u32).expect("valid icon RGBA buffer")
