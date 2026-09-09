@@ -59,8 +59,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: release-${{ matrix.asset }}
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libayatana-appindicator3-dev libxdo-dev
       - run: cargo build --release --locked
-      # Two shapes of the same binary: install.sh downloads the bare file and
       # verifies it against SHA256SUMS, while Homebrew, Scoop, and npm all want
       # an archive.
       - name: Stage binary
