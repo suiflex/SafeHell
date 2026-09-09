@@ -33,7 +33,7 @@ test-scripts:
 	sh tests/install_sh_test.sh
 	node npm/install.js --selftest
 	sh tests/logo.sh --check
-
+	python3 .github/scripts/test_attribute_changelog.py
 check: fmt-check lint test test-scripts
 
 clean:
