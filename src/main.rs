@@ -6,6 +6,7 @@ mod mcp;
 mod policy;
 mod remote;
 mod security;
+mod tray;
 mod update;
 mod vault;
 
@@ -40,6 +41,13 @@ enum Command {
     },
     /// Run the foreground approval broker.
     Serve {
+        /// Run unattended: allow-listed commands execute, anything that would
+        /// prompt is denied instead of waiting for an operator.
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Run the background approval broker in the desktop system tray / menu bar.
+    Tray {
         /// Run unattended: allow-listed commands execute, anything that would
         /// prompt is denied instead of waiting for an operator.
         #[arg(long)]
@@ -178,6 +186,7 @@ async fn main() -> Result<()> {
         Command::Update { version } => update::run(version.as_deref()),
         Command::Server { command } => run_server_command(command),
         Command::Serve { yes } => broker::serve(yes).await,
+        Command::Tray { yes } => tray::run(yes),
         Command::Exec {
             alias,
             reason,
