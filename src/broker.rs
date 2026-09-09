@@ -11,6 +11,8 @@ use serde::Serialize;
 use crate::policy::{Decision, Gate};
 use crate::{config, ipc, policy, remote, security, vault};
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 #[derive(Serialize)]
 struct Audit<'a> {
     timestamp_unix: u64,
@@ -23,11 +25,20 @@ struct Audit<'a> {
     outcome: &'a str,
 }
 
+#[derive(Debug, Clone)]
+pub struct ApprovalRequest {
+    pub alias: String,
+    pub command: String,
+    pub reason: Option<String>,
+    pub timeout_seconds: u64,
+    pub responder: tokio::sync::mpsc::Sender<bool>,
+}
 /// Broker-wide state. The terminal lock exists because the approval prompt is a
 /// single shared console; everything else may run concurrently so that polling a
 /// background job is never stuck behind a long command.
 pub struct State {
-    auto_approve: bool,
+    pub auto_approve: Arc<AtomicBool>,
+    pub approval_tx: Option<tokio::sync::mpsc::Sender<ApprovalRequest>>,
     gate: Mutex<Gate>,
     terminal: tokio::sync::Mutex<()>,
     jobs: Mutex<Vec<(String, Arc<Mutex<remote::Output>>)>>,
@@ -38,22 +49,25 @@ const MAX_JOBS: usize = 16;
 
 pub async fn serve(auto_approve: bool) -> Result<()> {
     let (_tx, rx) = tokio::sync::watch::channel(false);
-    serve_with_shutdown(auto_approve, rx).await
+    let flag = Arc::new(AtomicBool::new(auto_approve));
+    serve_with_shutdown(flag, rx, None).await
 }
 
 pub async fn serve_with_shutdown(
-    auto_approve: bool,
+    auto_approve: Arc<AtomicBool>,
     mut shutdown: tokio::sync::watch::Receiver<bool>,
+    approval_tx: Option<tokio::sync::mpsc::Sender<ApprovalRequest>>,
 ) -> Result<()> {
     let listener = ipc::listener()?;
     let state = Arc::new(State {
-        auto_approve,
+        auto_approve: Arc::clone(&auto_approve),
+        approval_tx,
         gate: Mutex::new(Gate::default()),
         terminal: tokio::sync::Mutex::new(()),
         jobs: Mutex::new(Vec::new()),
     });
     println!("SafeHell approval broker is running. Keep this terminal open.");
-    if auto_approve {
+    if auto_approve.load(Ordering::Relaxed) {
         println!(
             "AUTO-APPROVE MODE: allow-listed commands run without a prompt. Anything outside `autoapprove.allow` still needs approval, and `autoapprove.deny` always wins."
         );
@@ -201,7 +215,7 @@ async fn gated(
         println!("Reason  : {reason}");
     }
 
-    let outcome = match verdict(server, limits, &hash, command, state).await? {
+    let outcome = match verdict(server, limits, &hash, alias, command, reason, state).await? {
         Verdict::Run(outcome) => outcome,
         Verdict::Refuse {
             reason,
@@ -536,7 +550,9 @@ async fn verdict(
     server: &config::Server,
     limits: &config::Limits,
     hash: &str,
+    alias: &str,
     command: &str,
+    reason: Option<&str>,
     state: &State,
 ) -> Result<Verdict> {
     let gate = &state.gate;
@@ -590,7 +606,7 @@ async fn verdict(
         );
         return Ok(Verdict::Run("ttl-approved"));
     }
-    if state.auto_approve {
+    if state.auto_approve.load(Ordering::Relaxed) {
         return Ok(refuse(
             "broker runs unattended (--yes); only commands in autoapprove.allow execute".into(),
             None,
@@ -599,41 +615,85 @@ async fn verdict(
     }
     // One prompt at a time: the console is shared by every in-flight request.
     let _console = state.terminal.lock().await;
-    Ok(match prompt(limits.approval_timeout_seconds).await? {
-        Some(true) => {
-            gate.lock().expect("gate mutex poisoned").remember_approval(
-                hash,
-                Instant::now(),
-                limits,
-            );
-            Verdict::Run("approved")
-        }
-        Some(false) => refuse("denied by the operator".into(), None, "denied"),
-        None => refuse(
-            format!(
-                "no operator decision within {}s",
-                limits.approval_timeout_seconds
+    Ok(
+        match prompt(
+            limits.approval_timeout_seconds,
+            alias,
+            command,
+            reason,
+            state.approval_tx.as_ref(),
+        )
+        .await?
+        {
+            Some(true) => {
+                gate.lock().expect("gate mutex poisoned").remember_approval(
+                    hash,
+                    Instant::now(),
+                    limits,
+                );
+                Verdict::Run("approved")
+            }
+            Some(false) => refuse("denied by the operator".into(), None, "denied"),
+            None => refuse(
+                format!(
+                    "no operator decision within {}s",
+                    limits.approval_timeout_seconds
+                ),
+                None,
+                "expired",
             ),
-            None,
-            "expired",
-        ),
-    })
+        },
+    )
 }
 
 /// `Some(true)` approved, `Some(false)` refused, `None` no answer in time.
-///
-/// ponytail: the blocking stdin read outlives the timeout, so a late keystroke
-/// is swallowed by the next prompt; swap for a raw-mode reader if that bites.
-async fn prompt(timeout_seconds: u64) -> Result<Option<bool>> {
+async fn prompt(
+    timeout_seconds: u64,
+    alias: &str,
+    command: &str,
+    reason: Option<&str>,
+    approval_tx: Option<&tokio::sync::mpsc::Sender<ApprovalRequest>>,
+) -> Result<Option<bool>> {
     print!("Approve once? [y/N] (expires in {timeout_seconds}s) ");
     io::stdout().flush()?;
-    let read = tokio::task::spawn_blocking(|| {
+
+    let (responder_tx, mut responder_rx) = tokio::sync::mpsc::channel(1);
+    if let Some(tx) = approval_tx {
+        let _ = tx
+            .send(ApprovalRequest {
+                alias: alias.to_string(),
+                command: command.to_string(),
+                reason: reason.map(ToString::to_string),
+                timeout_seconds,
+                responder: responder_tx,
+            })
+            .await;
+    }
+
+    let stdin_read = tokio::task::spawn_blocking(|| {
         let mut answer = String::new();
         io::stdin().read_line(&mut answer).map(|_| answer)
     });
-    match tokio::time::timeout(Duration::from_secs(timeout_seconds), read).await {
-        Ok(joined) => Ok(Some(approves(&joined??))),
-        Err(_) => {
+
+    let timeout = tokio::time::sleep(Duration::from_secs(timeout_seconds));
+    tokio::pin!(timeout);
+
+    tokio::select! {
+        res = stdin_read => {
+            match res {
+                Ok(Ok(answer)) => Ok(Some(approves(&answer))),
+                _ => Ok(None),
+            }
+        }
+        ui_res = responder_rx.recv() => {
+            if let Some(approved) = ui_res {
+                println!("{}", if approved { "Approved via tray" } else { "Denied via tray" });
+                Ok(Some(approved))
+            } else {
+                Ok(None)
+            }
+        }
+        _ = &mut timeout => {
             println!("\nApproval window expired.");
             Ok(None)
         }

@@ -35,6 +35,8 @@ zeroize = { version = "1.8", features = ["derive"] }
 winit = "0.30"
 tray-icon = "0.24"
 muda = "0.19"
+notify-rust = "4.18"
+auto-launch = "0.6"
 
 [profile.release]
 lto = "thin"
