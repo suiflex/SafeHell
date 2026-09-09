@@ -1,13 +1,24 @@
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use anyhow::Result;
-use muda::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
-use tokio::sync::watch;
+use muda::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
+use tokio::sync::{mpsc, watch};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::WindowId;
 
+use crate::broker::ApprovalRequest;
+
 const ID_TOGGLE: &str = "toggle_broker";
+const ID_AUTOAPPROVE: &str = "toggle_autoapprove";
+const ID_AUTOSTART: &str = "toggle_autostart";
+const ID_APPROVE: &str = "action_approve";
+const ID_DENY: &str = "action_deny";
+const ID_UPDATE: &str = "action_update";
+const ID_RESTART: &str = "action_restart";
 const ID_QUIT: &str = "quit_app";
 
 /// Calculate shortest distance from point `(px, py)` to line segment `(x1, y1) -> (x2, y2)`.
@@ -81,34 +92,94 @@ pub fn create_brand_icon(r: u8, g: u8, b: u8) -> Icon {
     Icon::from_rgba(rgba, SIZE as u32, SIZE as u32).expect("valid icon RGBA buffer")
 }
 
+fn get_auto_launcher() -> Option<auto_launch::AutoLaunch> {
+    let app_name = "SafeHell";
+    let exe = std::env::current_exe().ok()?;
+    let exe_str = exe.to_string_lossy();
+    auto_launch::AutoLaunchBuilder::new()
+        .set_app_name(app_name)
+        .set_app_path(&exe_str)
+        .set_args(&["tray"])
+        .build()
+        .ok()
+}
+
 struct TrayApp {
-    auto_approve: bool,
+    auto_approve: Arc<AtomicBool>,
     running: bool,
     shutdown_tx: Option<watch::Sender<bool>>,
+    approval_tx: mpsc::Sender<ApprovalRequest>,
+    approval_rx: mpsc::Receiver<ApprovalRequest>,
+    pending_approval: Option<ApprovalRequest>,
+
     icon_running: Icon,
     icon_stopped: Icon,
+    icon_waiting: Icon,
+
     tray_icon: Option<TrayIcon>,
     menu_header: MenuItem,
     menu_toggle: MenuItem,
+    menu_autoapprove: CheckMenuItem,
+    menu_autostart: CheckMenuItem,
+    menu_approval_title: MenuItem,
+    menu_approve: MenuItem,
+    menu_deny: MenuItem,
+
     tokio_handle: tokio::runtime::Handle,
 }
 
 impl TrayApp {
-    fn new(auto_approve: bool, tokio_handle: tokio::runtime::Handle) -> Self {
+    fn new(initial_auto_approve: bool, tokio_handle: tokio::runtime::Handle) -> Self {
+        let (approval_tx, approval_rx) = mpsc::channel(16);
+        let auto_approve = Arc::new(AtomicBool::new(initial_auto_approve));
+
+        let autostart_enabled = get_auto_launcher()
+            .and_then(|a| a.is_enabled().ok())
+            .unwrap_or(false);
+
         let menu_header = MenuItem::new("🟢 SafeHell: Running", false, None);
         let menu_toggle = MenuItem::with_id(ID_TOGGLE, "⏹️  Stop Broker", true, None);
+        let menu_autoapprove = CheckMenuItem::with_id(
+            ID_AUTOAPPROVE,
+            "⚡ Auto-Approve Allowed Rules",
+            true,
+            initial_auto_approve,
+            None,
+        );
+        let menu_autostart = CheckMenuItem::with_id(
+            ID_AUTOSTART,
+            "🚀 Start at Login",
+            true,
+            autostart_enabled,
+            None,
+        );
+
+        let menu_approval_title = MenuItem::new("⚠️ No pending approvals", false, None);
+        let menu_approve = MenuItem::with_id(ID_APPROVE, "  ✅ Approve", false, None);
+        let menu_deny = MenuItem::with_id(ID_DENY, "  ❌ Deny", false, None);
+
         let icon_running = create_brand_icon(74, 222, 128); // #4ade80 (Brand Green)
         let icon_stopped = create_brand_icon(239, 68, 68); // #ef4444 (Stop Red)
+        let icon_waiting = create_brand_icon(245, 158, 11); // #f59e0b (Amber Alert)
 
         Self {
             auto_approve,
             running: false,
             shutdown_tx: None,
+            approval_tx,
+            approval_rx,
+            pending_approval: None,
             icon_running,
             icon_stopped,
+            icon_waiting,
             tray_icon: None,
             menu_header,
             menu_toggle,
+            menu_autoapprove,
+            menu_autostart,
+            menu_approval_title,
+            menu_approve,
+            menu_deny,
             tokio_handle,
         }
     }
@@ -121,19 +192,20 @@ impl TrayApp {
         self.shutdown_tx = Some(tx);
         self.running = true;
 
-        let auto_approve = self.auto_approve;
+        let auto_approve = Arc::clone(&self.auto_approve);
+        let approval_tx = Some(self.approval_tx.clone());
+
         self.tokio_handle.spawn(async move {
-            if let Err(error) = crate::broker::serve_with_shutdown(auto_approve, rx).await {
+            if let Err(error) =
+                crate::broker::serve_with_shutdown(auto_approve, rx, approval_tx).await
+            {
                 eprintln!("broker error: {error:#}");
             }
         });
 
         self.menu_header.set_text("🟢 SafeHell: Running");
         self.menu_toggle.set_text("⏹️  Stop Broker");
-        if let Some(tray) = &self.tray_icon {
-            let _ = tray.set_icon(Some(self.icon_running.clone()));
-            let _ = tray.set_tooltip(Some("SafeHell: Running"));
-        }
+        self.update_tray_icon();
     }
 
     fn stop_broker(&mut self) {
@@ -144,13 +216,11 @@ impl TrayApp {
             let _ = tx.send(true);
         }
         self.running = false;
+        self.clear_pending_approval();
 
         self.menu_header.set_text("🔴 SafeHell: Stopped");
         self.menu_toggle.set_text("▶️  Start Broker");
-        if let Some(tray) = &self.tray_icon {
-            let _ = tray.set_icon(Some(self.icon_stopped.clone()));
-            let _ = tray.set_tooltip(Some("SafeHell: Stopped"));
-        }
+        self.update_tray_icon();
     }
 
     fn toggle_broker(&mut self) {
@@ -159,6 +229,133 @@ impl TrayApp {
         } else {
             self.start_broker();
         }
+    }
+
+    fn update_tray_icon(&self) {
+        let Some(tray) = &self.tray_icon else {
+            return;
+        };
+        if self.pending_approval.is_some() {
+            let _ = tray.set_icon(Some(self.icon_waiting.clone()));
+            let _ = tray.set_tooltip(Some("SafeHell: Approval Required"));
+        } else if self.running {
+            let _ = tray.set_icon(Some(self.icon_running.clone()));
+            let _ = tray.set_tooltip(Some("SafeHell: Running"));
+        } else {
+            let _ = tray.set_icon(Some(self.icon_stopped.clone()));
+            let _ = tray.set_tooltip(Some("SafeHell: Stopped"));
+        }
+    }
+
+    fn handle_approval_request(&mut self, req: ApprovalRequest) {
+        let cmd_preview = if req.command.len() > 28 {
+            format!("{}...", &req.command[..25])
+        } else {
+            req.command.clone()
+        };
+
+        self.menu_approval_title
+            .set_text(format!("⚠️ Approve {} ({cmd_preview})?", req.alias));
+        self.menu_approve.set_enabled(true);
+        self.menu_deny.set_enabled(true);
+
+        // Send desktop notification
+        let body = if let Some(reason) = &req.reason {
+            format!(
+                "Server: {}\nCommand: {}\nReason: {}\nExpires in {}s",
+                req.alias, req.command, reason, req.timeout_seconds
+            )
+        } else {
+            format!(
+                "Server: {}\nCommand: {}\nExpires in {}s",
+                req.alias, req.command, req.timeout_seconds
+            )
+        };
+
+        let _ = notify_rust::Notification::new()
+            .summary("SafeHell: Approval Requested")
+            .body(&body)
+            .show();
+
+        self.pending_approval = Some(req);
+        self.update_tray_icon();
+    }
+
+    fn resolve_approval(&mut self, approved: bool) {
+        if let Some(req) = self.pending_approval.take() {
+            let _ = req.responder.try_send(approved);
+        }
+        self.clear_pending_approval();
+    }
+
+    fn clear_pending_approval(&mut self) {
+        self.pending_approval = None;
+        self.menu_approval_title.set_text("⚠️ No pending approvals");
+        self.menu_approve.set_enabled(false);
+        self.menu_deny.set_enabled(false);
+        self.update_tray_icon();
+    }
+
+    fn toggle_autoapprove(&mut self) {
+        let current = self.auto_approve.load(Ordering::Relaxed);
+        let next = !current;
+        self.auto_approve.store(next, Ordering::Relaxed);
+        self.menu_autoapprove.set_checked(next);
+
+        let status = if next { "Enabled" } else { "Disabled" };
+        let _ = notify_rust::Notification::new()
+            .summary("SafeHell: Auto-Approve Mode")
+            .body(&format!("Auto-approve allowed rules: {status}"))
+            .show();
+    }
+
+    fn toggle_autostart(&mut self) {
+        if let Some(launcher) = get_auto_launcher() {
+            let is_enabled = launcher.is_enabled().unwrap_or(false);
+            if is_enabled {
+                let _ = launcher.disable();
+                self.menu_autostart.set_checked(false);
+            } else {
+                let _ = launcher.enable();
+                self.menu_autostart.set_checked(true);
+            }
+        }
+    }
+
+    fn check_update(&self) {
+        let _ = notify_rust::Notification::new()
+            .summary("SafeHell Update")
+            .body("Checking for published updates...")
+            .show();
+
+        self.tokio_handle.spawn(async move {
+            match crate::update::run(None) {
+                Ok(()) => {
+                    let _ = notify_rust::Notification::new()
+                        .summary("SafeHell Update")
+                        .body("SafeHell updated successfully. Restarting...")
+                        .show();
+                    if let Ok(exe) = std::env::current_exe() {
+                        let _ = std::process::Command::new(exe).arg("tray").spawn();
+                        std::process::exit(0);
+                    }
+                }
+                Err(error) => {
+                    let _ = notify_rust::Notification::new()
+                        .summary("SafeHell Update")
+                        .body(&format!("Update check finished: {error:#}"))
+                        .show();
+                }
+            }
+        });
+    }
+
+    fn restart_app(&mut self, event_loop: &ActiveEventLoop) {
+        self.stop_broker();
+        if let Ok(exe) = std::env::current_exe() {
+            let _ = std::process::Command::new(exe).arg("tray").spawn();
+        }
+        event_loop.exit();
     }
 }
 
@@ -169,11 +366,23 @@ impl ApplicationHandler for TrayApp {
         }
 
         let menu = Menu::new();
+        let menu_update = MenuItem::with_id(ID_UPDATE, "🔄 Check & Apply Update", true, None);
+        let menu_restart = MenuItem::with_id(ID_RESTART, "🔁 Restart SafeHell", true, None);
         let menu_quit = MenuItem::with_id(ID_QUIT, "❌ Quit", true, None);
+
         let _ = menu.append_items(&[
             &self.menu_header,
             &PredefinedMenuItem::separator(),
+            &self.menu_approval_title,
+            &self.menu_approve,
+            &self.menu_deny,
+            &PredefinedMenuItem::separator(),
             &self.menu_toggle,
+            &self.menu_autoapprove,
+            &self.menu_autostart,
+            &PredefinedMenuItem::separator(),
+            &menu_update,
+            &menu_restart,
             &PredefinedMenuItem::separator(),
             &menu_quit,
         ]);
@@ -202,12 +411,25 @@ impl ApplicationHandler for TrayApp {
             std::time::Instant::now() + std::time::Duration::from_millis(50),
         ));
 
+        // Poll incoming approval requests from broker
+        while let Ok(req) = self.approval_rx.try_recv() {
+            self.handle_approval_request(req);
+        }
+
         while let Ok(event) = MenuEvent::receiver().try_recv() {
-            if event.id == ID_TOGGLE {
-                self.toggle_broker();
-            } else if event.id == ID_QUIT {
-                self.stop_broker();
-                event_loop.exit();
+            match event.id.0.as_str() {
+                ID_TOGGLE => self.toggle_broker(),
+                ID_AUTOAPPROVE => self.toggle_autoapprove(),
+                ID_AUTOSTART => self.toggle_autostart(),
+                ID_APPROVE => self.resolve_approval(true),
+                ID_DENY => self.resolve_approval(false),
+                ID_UPDATE => self.check_update(),
+                ID_RESTART => self.restart_app(event_loop),
+                ID_QUIT => {
+                    self.stop_broker();
+                    event_loop.exit();
+                }
+                _ => {}
             }
         }
 
@@ -231,5 +453,6 @@ mod tests {
     fn creates_valid_brand_padlock_icons() {
         let _green = create_brand_icon(74, 222, 128);
         let _red = create_brand_icon(239, 68, 68);
+        let _amber = create_brand_icon(245, 158, 11);
     }
 }
