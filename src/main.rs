@@ -192,43 +192,7 @@ async fn main() -> Result<()> {
             reason,
             max_lines,
             command,
-        } => {
-            let project = config::discover(&std::env::current_dir()?)?;
-            let response = ipc::request(ipc::Request::Execute {
-                project: project.root,
-                alias,
-                command,
-                reason,
-                max_lines,
-            })
-            .await?;
-            match response {
-                ipc::Response::Executed(result) => {
-                    use std::io::Write;
-                    let mut stdout = std::io::stdout().lock();
-                    stdout.write_all(result.stdout.as_bytes())?;
-                    stdout.flush()?;
-                    let mut stderr = std::io::stderr().lock();
-                    stderr.write_all(result.stderr.as_bytes())?;
-                    stderr.flush()?;
-                    std::process::exit(result.exit_status.unwrap_or(255));
-                }
-                // Exit 3 marks a decision, not a failure, so scripts can tell
-                // "refused" apart from "the broker is down".
-                ipc::Response::Denied {
-                    reason,
-                    retry_after_seconds,
-                } => {
-                    eprintln!("denied: {reason}");
-                    if let Some(seconds) = retry_after_seconds {
-                        eprintln!("retry after {seconds}s");
-                    }
-                    std::process::exit(3);
-                }
-                ipc::Response::Error { message } => bail!(message),
-                other => bail!("unexpected broker response: {other:?}"),
-            }
-        }
+        } => run_exec(alias, reason, max_lines, command).await,
         Command::Audit { tail } => print_audit(tail),
         Command::Mcp => mcp::run().await,
         Command::Install { global, agent } => {
@@ -236,6 +200,47 @@ async fn main() -> Result<()> {
             integrations::install(selection, global)
         }
         Command::Hook { agent } => integrations::hook(agent.slug()),
+    }
+}
+
+async fn run_exec(
+    alias: String,
+    reason: Option<String>,
+    max_lines: Option<usize>,
+    command: String,
+) -> Result<()> {
+    let project = config::discover(&std::env::current_dir()?)?;
+    let response = ipc::request(ipc::Request::Execute {
+        project: project.root,
+        alias,
+        command,
+        reason,
+        max_lines,
+    })
+    .await?;
+    match response {
+        ipc::Response::Executed(result) => {
+            use std::io::Write;
+            let mut stdout = std::io::stdout().lock();
+            stdout.write_all(result.stdout.as_bytes())?;
+            stdout.flush()?;
+            let mut stderr = std::io::stderr().lock();
+            stderr.write_all(result.stderr.as_bytes())?;
+            stderr.flush()?;
+            std::process::exit(result.exit_status.unwrap_or(255));
+        }
+        ipc::Response::Denied {
+            reason,
+            retry_after_seconds,
+        } => {
+            eprintln!("denied: {reason}");
+            if let Some(seconds) = retry_after_seconds {
+                eprintln!("retry after {seconds}s");
+            }
+            std::process::exit(3);
+        }
+        ipc::Response::Error { message } => bail!(message),
+        other => bail!("unexpected broker response: {other:?}"),
     }
 }
 
