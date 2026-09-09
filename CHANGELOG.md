@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.5.0](https://github.com/suiflex/SafeHell/compare/v0.4.0...v0.5.0) (2026-09-09)
+
+
+### Features
+
+* add autostart, desktop alerts, and dynamic controls to system tray ([30bff4c](https://github.com/suiflex/SafeHell/commit/30bff4c29fa99ab875b51f5dcd7b7bda11903992))
+* add shutdown signal support to approval broker ([24493aa](https://github.com/suiflex/SafeHell/commit/24493aa98cee5b57e33c392e05ccd1cf403c5b91))
+* implement desktop system tray and menu bar control ([76cd36c](https://github.com/suiflex/SafeHell/commit/76cd36cd7e01f3f3a2ba52c1e405c1580a1308f9))
+* render brand padlock logo with cutout prompt in system tray ([7bde531](https://github.com/suiflex/SafeHell/commit/7bde531e99b28a3fd2290ee3075317e13256a55c))
+
+
+### Performance Improvements
+
+* flatten icon rasterization loop to single index iteration ([a891b77](https://github.com/suiflex/SafeHell/commit/a891b77b0be9a73b2c261a30730bd78f495915e2))
+
 ## [0.4.0](https://github.com/suiflex/SafeHell/compare/v0.3.0...v0.4.0) (2026-09-04)
 
 
