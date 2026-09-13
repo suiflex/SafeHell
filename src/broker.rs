@@ -196,11 +196,7 @@ async fn gated(
     if command.trim().is_empty() || command.len() > 128 * 1024 {
         bail!("command must be non-empty and no larger than 128 KiB");
     }
-    let server = project
-        .config
-        .servers
-        .get(alias)
-        .context("server alias not found")?;
+    let server = config::resolve_server(project, alias)?;
     let limits = &project.config.limits;
     let hash = security::command_hash(command);
 
@@ -215,7 +211,7 @@ async fn gated(
         println!("Reason  : {reason}");
     }
 
-    let outcome = match verdict(server, limits, &hash, alias, command, reason, state).await? {
+    let outcome = match verdict(&server, limits, &hash, alias, command, reason, state).await? {
         Verdict::Run(outcome) => outcome,
         Verdict::Refuse {
             reason,
@@ -270,9 +266,9 @@ async fn execute(
     if let Err(refusal) = gated(&project, alias, command, reason, state, started).await? {
         return Ok(refusal);
     }
-    let server = &project.config.servers[alias];
+    let server = config::resolve_server(&project, alias)?;
     let limits = &project.config.limits;
-    match remote::execute(server, limits, command, max_lines).await {
+    match remote::execute(&server, limits, command, max_lines).await {
         Ok(result) => {
             if let Err(error) = audit(
                 &project.config,
@@ -323,7 +319,7 @@ async fn start(
         jobs.push((job_id.clone(), Arc::clone(&sink)));
         evict(&mut jobs);
     }
-    let server = project.config.servers[alias].clone();
+    let server = config::resolve_server(&project, alias)?;
     let limits = project.config.limits.clone();
     let command = command.to_string();
     let config = project.config.clone();
@@ -472,8 +468,8 @@ async fn transfer(
     if let Err(refusal) = gated(&project, alias, &command, reason, state, started).await? {
         return Ok(refusal);
     }
-    let server = &project.config.servers[alias];
-    let (path, bytes) = match move_bytes(server, limits, transfer, &local).await {
+    let server = config::resolve_server(&project, alias)?;
+    let (path, bytes) = match move_bytes(&server, limits, transfer, &local).await {
         Ok(value) => value,
         Err(error) => {
             // A capped or missing file is a decision about this request, not a

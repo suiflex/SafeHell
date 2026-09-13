@@ -85,36 +85,53 @@ impl SafeHellMcp {
 #[tool_router]
 impl SafeHellMcp {
     #[tool(
-        description = "List configured SafeHell server aliases and their autoapprove rules. Reads the project config directly, so it works while the broker is down. Does not expose credentials."
+        description = "List global and current-project SafeHell server aliases with their scope and autoapprove rules. Global entries use global/<alias>; project entries use project/<alias>. Does not expose credentials."
     )]
     async fn list_servers(&self) -> String {
         match config::discover(&self.project) {
-            Ok(project) if project.config.servers.is_empty() => {
-                "no servers configured; run `safehell server add`".into()
+            Ok(project) => {
+                let global = match config::load_global() {
+                    Ok(global) => global,
+                    Err(error) => return format!("error: {error:#}"),
+                };
+                let mut entries = global
+                    .servers
+                    .iter()
+                    .map(|(alias, server)| {
+                        format!(
+                            "global/{alias}\t{}@{}:{}\t{}\tallow={:?} deny={:?}",
+                            server.username,
+                            server.host,
+                            server.port,
+                            server.auth.label(),
+                            server.autoapprove.allow,
+                            server.autoapprove.deny,
+                        )
+                    })
+                    .chain(project.config.servers.iter().map(|(alias, server)| {
+                        format!(
+                            "project/{alias}\t{}@{}:{}\t{}\tallow={:?} deny={:?}",
+                            server.username,
+                            server.host,
+                            server.port,
+                            server.auth.label(),
+                            server.autoapprove.allow,
+                            server.autoapprove.deny,
+                        )
+                    }))
+                    .collect::<Vec<_>>();
+                if entries.is_empty() {
+                    return "no servers configured; run `safehell server`".into();
+                }
+                entries.sort();
+                entries.join("\n")
             }
-            Ok(project) => project
-                .config
-                .servers
-                .iter()
-                .map(|(alias, server)| {
-                    format!(
-                        "{alias}\t{}@{}:{}\t{}\tallow={:?} deny={:?}",
-                        server.username,
-                        server.host,
-                        server.port,
-                        server.auth.label(),
-                        server.autoapprove.allow,
-                        server.autoapprove.deny,
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join("\n"),
             Err(error) => format!("error: {error:#}"),
         }
     }
 
     #[tool(
-        description = "Start a long-running command in the background after the same approval gate, and return a job_id immediately instead of blocking. Use poll to read its output progressively. This is a destructive/write-capable tool."
+        description = "Start a long-running command on a configured global or current-project server after the same approval gate. Use global/<alias> or project/<alias> to disambiguate scope, then poll the returned job_id. This is a destructive/write-capable tool."
     )]
     async fn start(&self, Parameters(input): Parameters<StartInput>) -> String {
         response_text(
@@ -143,7 +160,7 @@ impl SafeHellMcp {
     }
 
     #[tool(
-        description = "Copy a remote file to a path inside the project directory, subject to the same approval gate and max_transfer_bytes. Returns size and SHA-256 only; the content is written to disk, not into this response."
+        description = "Copy a remote file from a configured global or current-project server to a path inside the project directory, subject to the same approval gate and max_transfer_bytes. Use global/<alias> or project/<alias> to disambiguate scope. Returns size and SHA-256 only."
     )]
     async fn get_file(&self, Parameters(input): Parameters<GetFileInput>) -> String {
         response_text(
@@ -175,7 +192,7 @@ impl SafeHellMcp {
     }
 
     #[tool(
-        description = "Execute a non-interactive SSH command on a configured server. Commands outside autoapprove.allow wait for a human approval that expires, so a call can come back denied. This is a destructive/write-capable tool."
+        description = "Execute a non-interactive SSH command on a configured global or current-project server. Use global/<alias> or project/<alias> to disambiguate scope; an unqualified alias prefers the project server. Commands outside autoapprove.allow wait for human approval. This is a destructive/write-capable tool."
     )]
     async fn execute(&self, Parameters(input): Parameters<ExecuteInput>) -> String {
         response_text(

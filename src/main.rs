@@ -6,6 +6,7 @@ mod mcp;
 mod policy;
 mod remote;
 mod security;
+mod server_tui;
 mod tray;
 mod update;
 mod vault;
@@ -36,8 +37,9 @@ enum Command {
     },
     /// Manage servers in the current project.
     Server {
+        /// Open the interactive server manager when omitted.
         #[command(subcommand)]
-        command: ServerCommand,
+        command: Option<ServerCommand>,
     },
     /// Run the foreground approval broker.
     Serve {
@@ -52,6 +54,9 @@ enum Command {
         /// prompt is denied instead of waiting for an operator.
         #[arg(long)]
         yes: bool,
+        /// Keep this process attached to the current terminal.
+        #[arg(long)]
+        foreground: bool,
     },
     /// Request an approved non-interactive remote command.
     Exec {
@@ -107,11 +112,16 @@ enum ServerCommand {
 }
 
 #[derive(Clone, Copy, ValueEnum)]
-enum AuthArg {
+pub(crate) enum AuthArg {
     Password,
     SshAgent,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ServerScope {
+    Project,
+    Global,
+}
 #[derive(Clone, Copy, ValueEnum, PartialEq, Eq, Debug)]
 enum Agent {
     Codex,
@@ -186,7 +196,7 @@ async fn main() -> Result<()> {
         Command::Update { version } => update::run(version.as_deref()),
         Command::Server { command } => run_server_command(command),
         Command::Serve { yes } => broker::serve(yes).await,
-        Command::Tray { yes } => tray::run(yes),
+        Command::Tray { yes, foreground } => tray::run(yes, foreground),
         Command::Exec {
             alias,
             reason,
@@ -369,14 +379,31 @@ fn print_audit(tail: usize) -> Result<()> {
     Ok(())
 }
 
-fn run_server_command(command: ServerCommand) -> Result<()> {
+fn run_server_command(command: Option<ServerCommand>) -> Result<()> {
     let current = std::env::current_dir()?;
-    let project = config::discover(&current)?;
+    match command {
+        Some(command) => run_server_subcommand(&current, command),
+        None => server_tui::run(&current),
+    }
+}
+
+fn run_server_subcommand(current: &std::path::Path, command: ServerCommand) -> Result<()> {
+    let project = config::discover(current)?;
     match command {
         ServerCommand::List => {
+            let global = config::load_global()?;
+            for (alias, server) in global.servers {
+                println!(
+                    "global/{alias}\t{}@{}:{}\t{}",
+                    server.username,
+                    server.host,
+                    server.port,
+                    server.auth.label()
+                );
+            }
             for (alias, server) in project.config.servers {
                 println!(
-                    "{alias}\t{}@{}:{}\t{}",
+                    "project/{alias}\t{}@{}:{}\t{}",
                     server.username,
                     server.host,
                     server.port,
@@ -386,15 +413,7 @@ fn run_server_command(command: ServerCommand) -> Result<()> {
             Ok(())
         }
         ServerCommand::Remove { alias } => {
-            let mut cfg = project.config;
-            let removed = cfg
-                .servers
-                .remove(&alias)
-                .context("server alias not found")?;
-            config::save(&project.path, &cfg)?;
-            if let config::Auth::Password { credential_id } = removed.auth {
-                vault::remove_credential(credential_id)?;
-            }
+            remove_server(current, &alias, ServerScope::Project)?;
             println!("Removed {alias}");
             Ok(())
         }
@@ -405,54 +424,165 @@ fn run_server_command(command: ServerCommand) -> Result<()> {
             username,
             auth,
         } => {
-            config::validate_alias(&alias)?;
-            if host.trim().is_empty() || username.trim().is_empty() {
-                bail!("host and username must not be empty");
-            }
-            let mut cfg = project.config;
-            if cfg.servers.contains_key(&alias) {
-                bail!("server alias already exists");
-            }
-            let auth = match auth {
-                AuthArg::SshAgent => config::Auth::SshAgent,
-                AuthArg::Password => {
-                    use std::io::IsTerminal;
-                    if !std::io::stdin().is_terminal() {
-                        bail!("password entry requires an interactive terminal");
-                    }
-                    let password =
-                        zeroize::Zeroizing::new(rpassword::prompt_password("SSH password: ")?);
-                    if password.is_empty() {
-                        bail!("password must not be empty");
-                    }
-                    let id = vault::add_credential(&host, port, &username, password.as_str())?;
-                    config::Auth::Password { credential_id: id }
-                }
-            };
-            cfg.servers.insert(
-                alias.clone(),
-                config::Server {
+            add_server(
+                current,
+                ServerInput {
+                    alias: alias.clone(),
                     host,
                     port,
                     username,
                     auth,
-                    autoapprove: config::AutoApprove::default(),
+                    password: None,
+                    scope: ServerScope::Project,
                 },
-            );
-            if let Err(error) = config::save(&project.path, &cfg) {
-                if let Some(config::Server {
-                    auth: config::Auth::Password { credential_id },
-                    ..
-                }) = cfg.servers.get(&alias)
-                {
-                    let _ = vault::remove_credential(*credential_id);
-                }
-                return Err(error);
-            }
+            )?;
             println!("Added {alias}");
             Ok(())
         }
     }
+}
+
+pub(crate) struct ServerInput {
+    pub alias: String,
+    pub host: String,
+    pub port: u16,
+    pub username: String,
+    pub auth: AuthArg,
+    pub password: Option<zeroize::Zeroizing<String>>,
+    pub scope: ServerScope,
+}
+
+pub(crate) fn add_server(current: &std::path::Path, input: ServerInput) -> Result<()> {
+    let scope = input.scope;
+    config::validate_alias(&input.alias)?;
+    if input.host.trim().is_empty() || input.username.trim().is_empty() {
+        bail!("host and username must not be empty");
+    }
+    ensure_alias_available(current, &input.alias, scope)?;
+    let (alias, server) = build_server(input)?;
+    save_server(current, alias, server, scope)
+}
+
+fn ensure_alias_available(
+    current: &std::path::Path,
+    alias: &str,
+    scope: ServerScope,
+) -> Result<()> {
+    let contains = match scope {
+        ServerScope::Project => config::discover(current)?
+            .config
+            .servers
+            .contains_key(alias),
+        ServerScope::Global => config::load_global()?.servers.contains_key(alias),
+    };
+    if contains {
+        bail!("server alias already exists");
+    }
+    Ok(())
+}
+
+fn build_server(input: ServerInput) -> Result<(String, config::Server)> {
+    let ServerInput {
+        alias,
+        host,
+        port,
+        username,
+        auth,
+        password,
+        scope: _,
+    } = input;
+    let auth = match auth {
+        AuthArg::SshAgent => config::Auth::SshAgent,
+        AuthArg::Password => {
+            use std::io::IsTerminal;
+            let password = match password {
+                Some(password) => password,
+                None if std::io::stdin().is_terminal() => {
+                    zeroize::Zeroizing::new(rpassword::prompt_password("SSH password:")?)
+                }
+                None => bail!("password entry requires an interactive terminal"),
+            };
+            if password.is_empty() {
+                bail!("password must not be empty");
+            }
+            let id = vault::add_credential(&host, port, &username, password.as_str())?;
+            config::Auth::Password { credential_id: id }
+        }
+    };
+    Ok((
+        alias,
+        config::Server {
+            host,
+            port,
+            username,
+            auth,
+            autoapprove: config::AutoApprove::default(),
+        },
+    ))
+}
+
+fn save_server(
+    current: &std::path::Path,
+    alias: String,
+    server: config::Server,
+    scope: ServerScope,
+) -> Result<()> {
+    let credential_id = match &server.auth {
+        config::Auth::Password { credential_id } => Some(*credential_id),
+        config::Auth::SshAgent => None,
+    };
+    let save_result = match scope {
+        ServerScope::Project => {
+            let project = config::discover(current)?;
+            let mut cfg = project.config;
+            cfg.servers.insert(alias, server);
+            config::save(&project.path, &cfg)
+        }
+        ServerScope::Global => {
+            let mut cfg = config::load_global()?;
+            cfg.servers.insert(alias, server);
+            config::save_global(&cfg)
+        }
+    };
+    if let Err(error) = save_result {
+        if let Some(credential_id) = credential_id {
+            let _ = vault::remove_credential(credential_id);
+        }
+        return Err(error);
+    }
+    Ok(())
+}
+
+pub(crate) fn remove_server(
+    current: &std::path::Path,
+    alias: &str,
+    scope: ServerScope,
+) -> Result<()> {
+    let removed = match scope {
+        ServerScope::Project => {
+            let project = config::discover(current)?;
+            let mut cfg = project.config;
+            let removed = cfg
+                .servers
+                .remove(alias)
+                .context("server alias not found")?;
+            config::save(&project.path, &cfg)?;
+            removed
+        }
+        ServerScope::Global => {
+            let mut cfg = config::load_global()?;
+            let removed = cfg
+                .servers
+                .remove(alias)
+                .context("global server alias not found")?;
+            config::save_global(&cfg)?;
+            removed
+        }
+    };
+    if let config::Auth::Password { credential_id } = removed.auth {
+        vault::remove_credential(credential_id)?;
+    }
+    Ok(())
 }
 
 fn executable() -> Result<PathBuf> {
