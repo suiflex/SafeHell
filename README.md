@@ -103,6 +103,18 @@ safehell server add staging --host staging.example.com --username deploy --auth 
 safehell server list
 ```
 
+For an interactive server manager, run `safehell server` without a
+subcommand. Global entries and the current project's entries are shown
+together with their scope labels. Add forms let you choose `Global` or
+`Project`; deletion always asks for confirmation. Global entries are stored
+in SafeHell's user data directory and are available from every project.
+The explicit `safehell server add`, `list`, and `remove` commands continue
+to manage project entries for scripts.
+
+When a project and global server use the same alias, an unqualified
+`safehell exec <alias>` uses the project entry. Use `global/<alias>` or
+`project/<alias>` to select a scope explicitly.
+
 Password entry requires a TTY. `safehell init` creates `.safehell.toml` and adds it to `.git/info/exclude` when the project is a Git repository.
 
 Example config (never add secret fields):
@@ -158,6 +170,19 @@ safehell serve
 `safehell serve --yes` runs the broker unattended: allow-listed commands still
 execute, and anything that would need a prompt is denied instead of waiting.
 Every decision is recorded in the audit log.
+
+To run the approval broker from the desktop menu bar without keeping a
+terminal open:
+
+
+```sh
+safehell tray
+```
+
+This starts the tray process in the background and returns to the shell.
+Use `safehell tray --foreground` when diagnosing tray startup issues.
+The tray menu includes a `Global Servers` submenu. Project entries remain
+scoped to the project selected by the server manager.
 
 Then request a command from the project:
 

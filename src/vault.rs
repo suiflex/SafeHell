@@ -151,6 +151,10 @@ pub fn vault_path() -> Result<std::path::PathBuf> {
     Ok(data_dir()?.join("vault.age"))
 }
 
+pub fn servers_path() -> Result<std::path::PathBuf> {
+    Ok(data_dir()?.join("servers.toml"))
+}
+
 pub fn known_hosts_path() -> Result<std::path::PathBuf> {
     Ok(data_dir()?.join("known_hosts"))
 }
