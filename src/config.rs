@@ -7,6 +7,8 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::vault;
+
 pub const CONFIG_NAME: &str = ".safehell.toml";
 pub const MAX_TIMEOUT_SECONDS: u64 = 600;
 pub const MAX_OUTPUT_BYTES: usize = 10 * 1024 * 1024;
@@ -24,6 +26,23 @@ pub struct ProjectConfig {
     pub limits: Limits,
     #[serde(default)]
     pub servers: BTreeMap<String, Server>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GlobalConfig {
+    pub version: u8,
+    #[serde(default)]
+    pub servers: BTreeMap<String, Server>,
+}
+
+impl Default for GlobalConfig {
+    fn default() -> Self {
+        Self {
+            version: 1,
+            servers: BTreeMap::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -142,6 +161,53 @@ pub fn save(path: &Path, config: &ProjectConfig) -> Result<()> {
     atomic_write(path, raw.as_bytes())
 }
 
+pub fn load_global() -> Result<GlobalConfig> {
+    let path = vault::servers_path()?;
+    if !path.exists() {
+        return Ok(GlobalConfig::default());
+    }
+    let raw =
+        fs::read_to_string(&path).with_context(|| format!("cannot read {}", path.display()))?;
+    let config: GlobalConfig = toml::from_str(&raw)
+        .with_context(|| format!("invalid global server config {}", path.display()))?;
+    validate_global(&config)?;
+    Ok(config)
+}
+
+pub fn save_global(config: &GlobalConfig) -> Result<()> {
+    validate_global(config)?;
+    let raw = toml::to_string_pretty(config)?;
+    atomic_write(&vault::servers_path()?, raw.as_bytes())
+}
+
+pub fn resolve_server(project: &Project, alias: &str) -> Result<Server> {
+    let (scope, name) = alias.split_once('/').unwrap_or(("", alias));
+    match scope {
+        "project" => project
+            .config
+            .servers
+            .get(name)
+            .cloned()
+            .context("project server alias not found"),
+        "global" => load_global()?
+            .servers
+            .get(name)
+            .cloned()
+            .context("global server alias not found"),
+        "" => {
+            if let Some(server) = project.config.servers.get(name) {
+                return Ok(server.clone());
+            }
+            load_global()?
+                .servers
+                .get(name)
+                .cloned()
+                .context("server alias not found")
+        }
+        _ => bail!("server alias must be plain, project/<alias>, or global/<alias>"),
+    }
+}
+
 pub fn init_project(root: &Path) -> Result<()> {
     let path = root.join(CONFIG_NAME);
     if path.exists() {
@@ -196,7 +262,18 @@ fn validate(config: &ProjectConfig) -> Result<()> {
     if !(1..=MAX_TRANSFER_BYTES).contains(&config.limits.max_transfer_bytes) {
         bail!("max_transfer_bytes must be between 1 and {MAX_TRANSFER_BYTES}");
     }
-    for (alias, server) in &config.servers {
+    validate_servers(&config.servers)
+}
+
+fn validate_global(config: &GlobalConfig) -> Result<()> {
+    if config.version != 1 {
+        bail!("unsupported global config version {}", config.version);
+    }
+    validate_servers(&config.servers)
+}
+
+fn validate_servers(servers: &BTreeMap<String, Server>) -> Result<()> {
+    for (alias, server) in servers {
         validate_alias(alias)?;
         if server.host.trim().is_empty() || server.username.trim().is_empty() {
             bail!("server {alias} has an empty host or username");
