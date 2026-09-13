@@ -20,6 +20,31 @@
           - "Cargo.toml"
           - "Cargo.lock"
 
+"area: server":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/broker.rs"
+          - "src/config.rs"
+          - "src/main.rs"
+          - "src/server_tui.rs"
+
+"area: tray":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/tray.rs"
+
+"area: mcp":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/mcp.rs"
+
+"area: security":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/policy.rs"
+          - "src/security.rs"
+          - "src/vault.rs"
+
 "area: installer":
   - changed-files:
       - any-glob-to-any-file:
