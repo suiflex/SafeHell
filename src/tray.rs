@@ -1,8 +1,9 @@
+use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use anyhow::Result;
-use muda::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
+use anyhow::{Context, Result};
+use muda::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
 use tokio::sync::{mpsc, watch};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use winit::application::ApplicationHandler;
@@ -18,6 +19,7 @@ const ID_AUTOSTART: &str = "toggle_autostart";
 const ID_APPROVE: &str = "action_approve";
 const ID_DENY: &str = "action_deny";
 const ID_UPDATE: &str = "action_update";
+const ID_REFRESH_SERVERS: &str = "refresh_global_servers";
 const ID_RESTART: &str = "action_restart";
 const ID_QUIT: &str = "quit_app";
 
@@ -103,9 +105,46 @@ fn get_auto_launcher() -> Option<auto_launch::AutoLaunch> {
     auto_launch::AutoLaunchBuilder::new()
         .set_app_name(app_name)
         .set_app_path(&exe_str)
-        .set_args(&["tray"])
+        .set_args(&["tray", "--foreground"])
         .build()
         .ok()
+}
+
+fn spawn_tray_process(auto_approve: bool) -> Result<std::process::Child> {
+    let exe = std::env::current_exe().context("cannot locate safehell executable")?;
+    let mut command = Command::new(exe);
+    command
+        .arg("tray")
+        .arg("--foreground")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    if auto_approve {
+        command.arg("--yes");
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        const DETACHED_PROCESS: u32 = 0x0000_0008;
+        command.creation_flags(CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW | DETACHED_PROCESS);
+    }
+
+    command
+        .spawn()
+        .context("cannot start SafeHell tray in the background")
+}
+
+fn spawn_restarted_tray(auto_approve: bool) -> Result<()> {
+    let _ = spawn_tray_process(auto_approve)?;
+    Ok(())
 }
 
 struct TrayApp {
@@ -128,6 +167,8 @@ struct TrayApp {
     menu_approval_title: MenuItem,
     menu_approve: MenuItem,
     menu_deny: MenuItem,
+    global_servers: Submenu,
+    menu_refresh_servers: MenuItem,
 
     tokio_handle: tokio::runtime::Handle,
 }
@@ -136,6 +177,9 @@ impl TrayApp {
     fn new(initial_auto_approve: bool, tokio_handle: tokio::runtime::Handle) -> Self {
         let (approval_tx, approval_rx) = mpsc::channel(16);
         let auto_approve = Arc::new(AtomicBool::new(initial_auto_approve));
+        let global_servers = Submenu::new("Global Servers", true);
+        let menu_refresh_servers =
+            MenuItem::with_id(ID_REFRESH_SERVERS, "↻ Refresh Global Servers", true, None);
 
         let autostart_enabled = get_auto_launcher()
             .and_then(|a| a.is_enabled().ok())
@@ -157,14 +201,12 @@ impl TrayApp {
             autostart_enabled,
             None,
         );
-
         let menu_approval_title = MenuItem::new("⚠️ No pending approvals", false, None);
         let menu_approve = MenuItem::with_id(ID_APPROVE, "  ✅ Approve", false, None);
         let menu_deny = MenuItem::with_id(ID_DENY, "  ❌ Deny", false, None);
-
-        let icon_running = create_brand_icon(74, 222, 128); // #4ade80 (Brand Green)
-        let icon_stopped = create_brand_icon(239, 68, 68); // #ef4444 (Stop Red)
-        let icon_waiting = create_brand_icon(245, 158, 11); // #f59e0b (Amber Alert)
+        let icon_running = create_brand_icon(74, 222, 128);
+        let icon_stopped = create_brand_icon(239, 68, 68);
+        let icon_waiting = create_brand_icon(245, 158, 11);
 
         Self {
             auto_approve,
@@ -184,6 +226,8 @@ impl TrayApp {
             menu_approval_title,
             menu_approve,
             menu_deny,
+            global_servers,
+            menu_refresh_servers,
             tokio_handle,
         }
     }
@@ -292,6 +336,40 @@ impl TrayApp {
         self.clear_pending_approval();
     }
 
+    fn refresh_global_servers(&self) {
+        while self.global_servers.remove_at(0).is_some() {}
+        match crate::config::load_global() {
+            Ok(global) if global.servers.is_empty() => {
+                let item = MenuItem::new("No global servers configured", false, None);
+                let _ = self.global_servers.append(&item);
+            }
+            Ok(global) => {
+                for (alias, server) in global.servers {
+                    let item = MenuItem::new(
+                        format!(
+                            "{alias}  {}@{}:{} ({})",
+                            server.username,
+                            server.host,
+                            server.port,
+                            server.auth.label()
+                        ),
+                        false,
+                        None,
+                    );
+                    let _ = self.global_servers.append(&item);
+                }
+            }
+            Err(error) => {
+                let item = MenuItem::new(
+                    format!("Unable to load global servers: {error:#}"),
+                    false,
+                    None,
+                );
+                let _ = self.global_servers.append(&item);
+            }
+        }
+    }
+
     fn clear_pending_approval(&mut self) {
         self.pending_approval = None;
         self.menu_approval_title.set_text("⚠️ No pending approvals");
@@ -331,6 +409,7 @@ impl TrayApp {
             .summary("SafeHell Update")
             .body("Checking for published updates...")
             .show();
+        let auto_approve = self.auto_approve.load(Ordering::Relaxed);
 
         self.tokio_handle.spawn(async move {
             match crate::update::run(None) {
@@ -339,8 +418,7 @@ impl TrayApp {
                         .summary("SafeHell Update")
                         .body("SafeHell updated successfully. Restarting...")
                         .show();
-                    if let Ok(exe) = std::env::current_exe() {
-                        let _ = std::process::Command::new(exe).arg("tray").spawn();
+                    if spawn_restarted_tray(auto_approve).is_ok() {
                         std::process::exit(0);
                     }
                 }
@@ -356,8 +434,12 @@ impl TrayApp {
 
     fn restart_app(&mut self, event_loop: &ActiveEventLoop) {
         self.stop_broker();
-        if let Ok(exe) = std::env::current_exe() {
-            let _ = std::process::Command::new(exe).arg("tray").spawn();
+        if let Err(error) = spawn_restarted_tray(self.auto_approve.load(Ordering::Relaxed)) {
+            let _ = notify_rust::Notification::new()
+                .summary("SafeHell Restart Failed")
+                .body(&format!("{error:#}"))
+                .show();
+            return;
         }
         event_loop.exit();
     }
@@ -370,6 +452,7 @@ impl ApplicationHandler for TrayApp {
         }
 
         let menu = Menu::new();
+        self.refresh_global_servers();
         let menu_update = MenuItem::with_id(ID_UPDATE, "🔄 Check & Apply Update", true, None);
         let menu_restart = MenuItem::with_id(ID_RESTART, "🔁 Restart SafeHell", true, None);
         let menu_quit = MenuItem::with_id(ID_QUIT, "❌ Quit", true, None);
@@ -380,6 +463,9 @@ impl ApplicationHandler for TrayApp {
             &self.menu_approval_title,
             &self.menu_approve,
             &self.menu_deny,
+            &PredefinedMenuItem::separator(),
+            &self.global_servers,
+            &self.menu_refresh_servers,
             &PredefinedMenuItem::separator(),
             &self.menu_toggle,
             &self.menu_autoapprove,
@@ -428,6 +514,7 @@ impl ApplicationHandler for TrayApp {
                 ID_APPROVE => self.resolve_approval(true),
                 ID_DENY => self.resolve_approval(false),
                 ID_UPDATE => self.check_update(),
+                ID_REFRESH_SERVERS => self.refresh_global_servers(),
                 ID_RESTART => self.restart_app(event_loop),
                 ID_QUIT => {
                     self.stop_broker();
@@ -441,7 +528,16 @@ impl ApplicationHandler for TrayApp {
     }
 }
 
-pub fn run(auto_approve: bool) -> Result<()> {
+pub fn run(auto_approve: bool, foreground: bool) -> Result<()> {
+    if !foreground {
+        let child = spawn_tray_process(auto_approve)?;
+        println!(
+            "SafeHell tray started in the background (pid {}).",
+            child.id()
+        );
+        return Ok(());
+    }
+
     let tokio_handle = tokio::runtime::Handle::current();
     let event_loop = EventLoop::new()?;
     let mut app = TrayApp::new(auto_approve, tokio_handle);
