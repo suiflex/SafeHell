@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.6.0](https://github.com/suiflex/SafeHell/compare/v0.5.0...v0.6.0) (2026-09-13)
+
+
+### Features
+
+* add scoped server management ([2d9da8c](https://github.com/suiflex/SafeHell/commit/2d9da8cd1e22e7bd4599a30361790171200e7fb8))
+* show global servers in tray ([60d7478](https://github.com/suiflex/SafeHell/commit/60d747834f5ec721a659b0438606fa4a5bceb292))
+
+
+### Bug Fixes
+
+* **ci:** install Linux GTK dependencies for crates.io publishing ([0b531f8](https://github.com/suiflex/SafeHell/commit/0b531f82f446e15bf64a80223afcb20a4132f6d0))
+
 ## [0.5.0](https://github.com/suiflex/SafeHell/compare/v0.4.0...v0.5.0) (2026-09-09)
 
 
