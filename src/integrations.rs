@@ -181,115 +181,148 @@ fn install_agent(
     written: &mut Vec<String>,
 ) -> Result<()> {
     match agent {
-        Agent::Codex => {
-            register_mcp(agent, root, home, executable, global, project, written)?;
-            install_hook(&root.join(".codex/hooks.json"), executable, "codex")?;
-            seed_user_policy(
-                root,
-                if global {
-                    ".codex/AGENTS.md"
-                } else {
-                    "AGENTS.md"
-                },
-                written,
-            )?;
+        Agent::Codex | Agent::Claude => {
+            install_hooked_agent(agent, root, home, executable, global, project, written)
         }
-        Agent::Claude => {
-            register_mcp(agent, root, home, executable, global, project, written)?;
-            install_hook(&root.join(".claude/settings.json"), executable, "claude")?;
-            seed_user_policy(
-                root,
-                if global {
-                    ".claude/CLAUDE.md"
-                } else {
-                    "CLAUDE.md"
-                },
-                written,
-            )?;
+        Agent::Cursor
+        | Agent::Opencode
+        | Agent::Antigravity
+        | Agent::Openclaw
+        | Agent::Windsurf => {
+            install_file_agent(agent, root, home, executable, global, project, written)
         }
-        Agent::Cursor => {
-            register_mcp(agent, root, home, executable, global, project, written)?;
-            purge_legacy_file(agent, root, home, global, written)?;
-            seed_owned_policy(
-                root,
-                ".cursor/rules/safehell.mdc",
-                CURSOR_POLICY_SEED,
-                written,
-            )?;
+        Agent::Hermes | Agent::Copilot => {
+            install_cli_agent(agent, root, home, executable, global, project, written)
         }
-        Agent::Opencode => {
-            register_mcp(agent, root, home, executable, global, project, written)?;
-            purge_legacy_file(agent, root, home, global, written)?;
-            seed_user_policy(
-                root,
-                if global {
-                    ".config/opencode/AGENTS.md"
-                } else {
-                    "AGENTS.md"
-                },
-                written,
-            )?;
+        Agent::Cline | Agent::Roo => {
+            install_extension_agent(agent, root, home, executable, global, written)
         }
-        Agent::Antigravity => {
-            register_mcp(agent, root, home, executable, global, project, written)?;
-            purge_legacy_file(agent, root, home, global, written)?;
+    }
+}
+
+fn install_hooked_agent(
+    agent: Agent,
+    root: &Path,
+    home: &Path,
+    executable: &Path,
+    global: bool,
+    project: Option<&Path>,
+    written: &mut Vec<String>,
+) -> Result<()> {
+    register_mcp(agent, root, home, executable, global, project, written)?;
+    let (settings, policy) = match agent {
+        Agent::Codex => (
+            ".codex/hooks.json",
             if global {
-                seed_user_policy(root, ".gemini/GEMINI.md", written)?;
+                ".codex/AGENTS.md"
             } else {
-                seed_owned_policy(root, ".agents/rules/safehell.md", POLICY_SEED, written)?;
-            }
-        }
-        Agent::Hermes => {
-            register_mcp(agent, root, home, executable, global, project, written)?;
-            if !global {
-                seed_user_policy(root, "AGENTS.md", written)?;
+                "AGENTS.md"
+            },
+        ),
+        Agent::Claude => (
+            ".claude/settings.json",
+            if global {
+                ".claude/CLAUDE.md"
+            } else {
+                "CLAUDE.md"
+            },
+        ),
+        _ => unreachable!("hooked agent"),
+    };
+    install_hook(&root.join(settings), executable, agent.slug())?;
+    seed_user_policy(root, policy, written)
+}
+
+fn install_file_agent(
+    agent: Agent,
+    root: &Path,
+    home: &Path,
+    executable: &Path,
+    global: bool,
+    project: Option<&Path>,
+    written: &mut Vec<String>,
+) -> Result<()> {
+    register_mcp(agent, root, home, executable, global, project, written)?;
+    purge_legacy_file(agent, root, home, global, written)?;
+    match agent {
+        Agent::Cursor => seed_owned_policy(
+            root,
+            ".cursor/rules/safehell.mdc",
+            CURSOR_POLICY_SEED,
+            written,
+        ),
+        Agent::Opencode => seed_user_policy(
+            root,
+            if global {
+                ".config/opencode/AGENTS.md"
+            } else {
+                "AGENTS.md"
+            },
+            written,
+        ),
+        Agent::Antigravity => {
+            if global {
+                seed_user_policy(root, ".gemini/GEMINI.md", written)
+            } else {
+                seed_owned_policy(root, ".agents/rules/safehell.md", POLICY_SEED, written)
             }
         }
         Agent::Openclaw => {
-            register_mcp(agent, root, home, executable, global, project, written)?;
-            purge_legacy_file(agent, root, home, global, written)?;
-            if !global {
-                seed_user_policy(root, "AGENTS.md", written)?;
+            if global {
+                Ok(())
+            } else {
+                seed_user_policy(root, "AGENTS.md", written)
             }
         }
         Agent::Windsurf => {
-            // Windsurf reads MCP servers from the user directory only.
-            register_mcp(agent, root, home, executable, global, project, written)?;
-            purge_legacy_file(agent, root, home, global, written)?;
             if global {
-                seed_user_policy(root, ".codeium/windsurf/memories/global_rules.md", written)?;
+                seed_user_policy(root, ".codeium/windsurf/memories/global_rules.md", written)
             } else {
-                seed_user_policy(root, "AGENTS.md", written)?;
+                seed_user_policy(root, "AGENTS.md", written)
             }
         }
-        Agent::Copilot => {
-            // Kurir delegates VS Code registration to `code --add-mcp`.
-            register_mcp(agent, root, home, executable, global, project, written)?;
-            if !global {
-                seed_user_policy(root, ".github/copilot-instructions.md", written)?;
-            }
-        }
-        Agent::Cline | Agent::Roo => {
-            // Kurir does not model these extension-owned VS Code profiles yet.
-            match vscode_mcp_settings(home, agent) {
-                Some(path) => {
-                    write_mcp_servers_json_legacy(&path, executable, written)?;
-                }
-                None => eprintln!(
-                    "{} is not installed in this VS Code profile; skipped its MCP registration",
-                    agent.slug()
-                ),
-            }
-            match (agent, global) {
-                (Agent::Cline, true) => seed_user_policy(root, ".agents/AGENTS.md", written)?,
-                (Agent::Roo, true) => {
-                    seed_owned_policy(root, ".roo/rules/safehell.md", POLICY_SEED, written)?
-                }
-                _ => seed_user_policy(root, "AGENTS.md", written)?,
-            }
-        }
+        _ => unreachable!("file agent"),
+    }
+}
+
+fn install_cli_agent(
+    agent: Agent,
+    root: &Path,
+    home: &Path,
+    executable: &Path,
+    global: bool,
+    project: Option<&Path>,
+    written: &mut Vec<String>,
+) -> Result<()> {
+    register_mcp(agent, root, home, executable, global, project, written)?;
+    if !global {
+        seed_user_policy(root, "AGENTS.md", written)?;
     }
     Ok(())
+}
+
+fn install_extension_agent(
+    agent: Agent,
+    root: &Path,
+    home: &Path,
+    executable: &Path,
+    global: bool,
+    written: &mut Vec<String>,
+) -> Result<()> {
+    match vscode_mcp_settings(home, agent) {
+        Some(path) => write_mcp_servers_json_legacy(&path, executable, written)?,
+        None => eprintln!(
+            "{} is not installed in this VS Code profile; skipped its MCP registration",
+            agent.slug()
+        ),
+    }
+    match (agent, global) {
+        (Agent::Cline, true) => seed_user_policy(root, ".agents/AGENTS.md", written),
+        (Agent::Roo, true) => {
+            seed_owned_policy(root, ".roo/rules/safehell.md", POLICY_SEED, written)
+        }
+        _ => seed_user_policy(root, "AGENTS.md", written),
+    }
 }
 
 fn harness_for(agent: Agent) -> Option<kurir::Harness> {
