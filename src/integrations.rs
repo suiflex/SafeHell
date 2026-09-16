@@ -873,7 +873,7 @@ mod tests {
         fs::write(root.join("opencode.json"), "{ // jsonc comment\n").expect("seed jsonc");
         let executable = fake_executable(&root);
         let mut written = Vec::new();
-        let error = install_agent(
+        let _error = install_agent(
             Agent::Opencode,
             &root,
             &root,
