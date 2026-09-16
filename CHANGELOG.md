@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/suiflex/SafeHell/compare/v0.6.0...v0.6.1) (2026-09-16)
+
+
+### Bug Fixes
+
+* satisfy strict integration lint ([594bd52](https://github.com/suiflex/SafeHell/commit/594bd52a3cb436d9f32f01e9ff2b8f3f4daca742))
+
 ## [0.6.0](https://github.com/suiflex/SafeHell/compare/v0.5.0...v0.6.0) (2026-09-13)
 
 
