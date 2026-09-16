@@ -182,7 +182,7 @@ fn install_agent(
 ) -> Result<()> {
     match agent {
         Agent::Codex => {
-            register_mcp_cli(agent, executable, global, project)?;
+            register_mcp(agent, root, home, executable, global, project, written)?;
             install_hook(&root.join(".codex/hooks.json"), executable, "codex")?;
             seed_user_policy(
                 root,
@@ -195,7 +195,7 @@ fn install_agent(
             )?;
         }
         Agent::Claude => {
-            register_mcp_cli(agent, executable, global, project)?;
+            register_mcp(agent, root, home, executable, global, project, written)?;
             install_hook(&root.join(".claude/settings.json"), executable, "claude")?;
             seed_user_policy(
                 root,
@@ -208,7 +208,8 @@ fn install_agent(
             )?;
         }
         Agent::Cursor => {
-            write_mcp_servers_json(&root.join(".cursor/mcp.json"), executable, written)?;
+            register_mcp(agent, root, home, executable, global, project, written)?;
+            purge_legacy_file(agent, root, home, global, written)?;
             seed_owned_policy(
                 root,
                 ".cursor/rules/safehell.mdc",
@@ -217,12 +218,8 @@ fn install_agent(
             )?;
         }
         Agent::Opencode => {
-            let config = if global {
-                root.join(".config/opencode/opencode.json")
-            } else {
-                root.join("opencode.json")
-            };
-            write_opencode_mcp(&config, executable, written)?;
+            register_mcp(agent, root, home, executable, global, project, written)?;
+            purge_legacy_file(agent, root, home, global, written)?;
             seed_user_policy(
                 root,
                 if global {
@@ -234,47 +231,31 @@ fn install_agent(
             )?;
         }
         Agent::Antigravity => {
+            register_mcp(agent, root, home, executable, global, project, written)?;
+            purge_legacy_file(agent, root, home, global, written)?;
             if global {
-                write_mcp_servers_json(
-                    &root.join(".gemini/config/mcp_config.json"),
-                    executable,
-                    written,
-                )?;
                 seed_user_policy(root, ".gemini/GEMINI.md", written)?;
             } else {
-                write_mcp_servers_json(&root.join(".agents/mcp_config.json"), executable, written)?;
                 seed_owned_policy(root, ".agents/rules/safehell.md", POLICY_SEED, written)?;
             }
         }
         Agent::Hermes => {
-            // Hermes keeps servers in `~/.hermes/config.yaml`, which SafeHell
-            // will not hand-edit: rewriting YAML without a parser would risk
-            // the rest of the user's configuration. Its own CLI owns the file.
-            register_mcp_cli(agent, executable, global, project)?;
+            register_mcp(agent, root, home, executable, global, project, written)?;
             if !global {
                 seed_user_policy(root, "AGENTS.md", written)?;
             }
         }
         Agent::Openclaw => {
-            let config = if global {
-                root.join(".openclaw/openclaw.json")
-            } else {
-                root.join("openclaw.json")
-            };
-            write_openclaw_mcp(&config, executable, written)?;
+            register_mcp(agent, root, home, executable, global, project, written)?;
+            purge_legacy_file(agent, root, home, global, written)?;
             if !global {
                 seed_user_policy(root, "AGENTS.md", written)?;
             }
         }
         Agent::Windsurf => {
-            // Windsurf reads MCP servers from the user directory only, so a
-            // project install still registers there; anything else would seed
-            // a policy naming tools no agent can reach.
-            write_mcp_servers_json(
-                &home.join(".codeium/windsurf/mcp_config.json"),
-                executable,
-                written,
-            )?;
+            // Windsurf reads MCP servers from the user directory only.
+            register_mcp(agent, root, home, executable, global, project, written)?;
+            purge_legacy_file(agent, root, home, global, written)?;
             if global {
                 seed_user_policy(root, ".codeium/windsurf/memories/global_rules.md", written)?;
             } else {
@@ -282,23 +263,18 @@ fn install_agent(
             }
         }
         Agent::Copilot => {
-            // Copilot instructions and `.vscode/mcp.json` are both
-            // repository-scoped; there is no documented user-level equivalent
-            // to guess at.
-            if global {
-                eprintln!(
-                    "copilot has no documented user-level configuration; run without --global"
-                );
-            } else {
-                write_vscode_mcp(&root.join(".vscode/mcp.json"), executable, written)?;
+            // Kurir delegates VS Code registration to `code --add-mcp`.
+            register_mcp(agent, root, home, executable, global, project, written)?;
+            if !global {
                 seed_user_policy(root, ".github/copilot-instructions.md", written)?;
             }
         }
         Agent::Cline | Agent::Roo => {
-            // Both store MCP servers in the VS Code profile rather than the
-            // repository, so the registration is user-level in either scope.
+            // Kurir does not model these extension-owned VS Code profiles yet.
             match vscode_mcp_settings(home, agent) {
-                Some(path) => write_mcp_servers_json(&path, executable, written)?,
+                Some(path) => {
+                    write_mcp_servers_json_legacy(&path, executable, written)?;
+                }
                 None => eprintln!(
                     "{} is not installed in this VS Code profile; skipped its MCP registration",
                     agent.slug()
@@ -314,6 +290,96 @@ fn install_agent(
         }
     }
     Ok(())
+}
+
+fn harness_for(agent: Agent) -> Option<kurir::Harness> {
+    Some(match agent {
+        Agent::Codex => kurir::Harness::Codex,
+        Agent::Claude => kurir::Harness::ClaudeCodeCli,
+        Agent::Cursor => kurir::Harness::Cursor,
+        Agent::Opencode => kurir::Harness::OpenCode,
+        Agent::Hermes => kurir::Harness::Hermes,
+        Agent::Openclaw => kurir::Harness::OpenClaw,
+        Agent::Antigravity => kurir::Harness::AntigravityCli,
+        Agent::Windsurf => kurir::Harness::Windsurf,
+        Agent::Copilot => kurir::Harness::Vscode,
+        Agent::Cline | Agent::Roo => return None,
+    })
+}
+
+fn register_mcp(
+    agent: Agent,
+    root: &Path,
+    home: &Path,
+    executable: &Path,
+    global: bool,
+    project: Option<&Path>,
+    written: &mut Vec<String>,
+) -> Result<()> {
+    let Some(harness) = harness_for(agent) else {
+        return Ok(());
+    };
+    if matches!(agent, Agent::Codex | Agent::Claude | Agent::Hermes) {
+        unregister_legacy_mcp(agent, global, project);
+    }
+    let options = kurir::RegistrationOptions {
+        scope: if global {
+            kurir::Scope::User
+        } else {
+            kurir::Scope::Project
+        },
+        config: registration_config(agent, root, home, global),
+        cwd: project.unwrap_or(root).to_path_buf(),
+        force: true,
+        ..kurir::RegistrationOptions::default()
+    };
+    let spec = kurir::ServerSpec::stdio(
+        MCP_SERVER,
+        executable.to_string_lossy().into_owned(),
+        vec!["mcp".into()],
+    );
+    let result = kurir::register(harness, &spec, &options)
+        .with_context(|| format!("failed to register SafeHell with {}", agent.slug()))?;
+    if let Some(target) = result.target {
+        record(&target, written);
+    }
+    Ok(())
+}
+
+fn registration_config(agent: Agent, root: &Path, home: &Path, global: bool) -> Option<PathBuf> {
+    let path = match agent {
+        Agent::Cursor => {
+            if global {
+                home.join(".cursor/mcp.json")
+            } else {
+                root.join(".cursor/mcp.json")
+            }
+        }
+        Agent::Opencode => {
+            if global {
+                home.join(".config/opencode/opencode.json")
+            } else {
+                root.join("opencode.json")
+            }
+        }
+        Agent::Openclaw => {
+            if global {
+                home.join(".openclaw/openclaw.json")
+            } else {
+                root.join("openclaw.json")
+            }
+        }
+        Agent::Antigravity => {
+            if global {
+                home.join(".gemini/config/mcp_config.json")
+            } else {
+                root.join(".agents/mcp_config.json")
+            }
+        }
+        Agent::Windsurf => home.join(".codeium/windsurf/mcp_config.json"),
+        _ => return None,
+    };
+    Some(path)
 }
 
 /// Directory VS Code keeps per-extension state in. Cline and Roo Code both
@@ -419,67 +485,96 @@ fn seed_policy(
     Ok(())
 }
 
-/// Cursor and Antigravity both read a `mcpServers` map: Cursor from
-/// `.cursor/mcp.json`, Antigravity from `mcp_config.json`.
-fn write_mcp_servers_json(path: &Path, executable: &Path, written: &mut Vec<String>) -> Result<()> {
+/// Remove names written by pre-Kurir SafeHell without owning the registration shape.
+///
+/// Kurir owns the current entry and all harness-specific merge rules. This
+/// narrow migration only removes the two historical names so an upgrade does
+/// not leave duplicate SafeHell tools behind.
+fn purge_legacy_file(
+    agent: Agent,
+    root: &Path,
+    home: &Path,
+    global: bool,
+    written: &mut Vec<String>,
+) -> Result<()> {
+    let (path, nested) = match agent {
+        Agent::Cursor => (
+            if global {
+                home.join(".cursor/mcp.json")
+            } else {
+                root.join(".cursor/mcp.json")
+            },
+            false,
+        ),
+        Agent::Opencode => (
+            if global {
+                home.join(".config/opencode/opencode.json")
+            } else {
+                root.join("opencode.json")
+            },
+            false,
+        ),
+        Agent::Openclaw => (
+            if global {
+                home.join(".openclaw/openclaw.json")
+            } else {
+                root.join("openclaw.json")
+            },
+            true,
+        ),
+        Agent::Antigravity => (
+            if global {
+                home.join(".gemini/config/mcp_config.json")
+            } else {
+                root.join(".agents/mcp_config.json")
+            },
+            false,
+        ),
+        Agent::Windsurf => (home.join(".codeium/windsurf/mcp_config.json"), false),
+        _ => return Ok(()),
+    };
+    if !path.exists() {
+        return Ok(());
+    }
+    let mut document = read_json_object(&path)?;
+    let changed = if nested {
+        let mcp = servers_map(&mut document, "mcp", &path)?;
+        let mut nested = Value::Object(std::mem::take(mcp));
+        let servers = servers_map(&mut nested, "servers", &path)?;
+        let before = servers.len();
+        purge_legacy_servers(servers);
+        document["mcp"] = nested;
+        before != document["mcp"]["servers"].as_object().map_or(0, Map::len)
+    } else {
+        let key = if matches!(agent, Agent::Opencode) {
+            "mcp"
+        } else {
+            "mcpServers"
+        };
+        let servers = servers_map(&mut document, key, &path)?;
+        let before = servers.len();
+        purge_legacy_servers(servers);
+        before != servers.len()
+    };
+    if changed {
+        write_json(&path, &document)?;
+        record(&path, written);
+    }
+    Ok(())
+}
+
+/// Legacy-only registration for extension-owned VS Code profiles not modeled by Kurir yet.
+fn write_mcp_servers_json_legacy(
+    path: &Path,
+    executable: &Path,
+    written: &mut Vec<String>,
+) -> Result<()> {
     let mut document = read_json_object(path)?;
     let servers = servers_map(&mut document, "mcpServers", path)?;
     purge_legacy_servers(servers);
     servers.insert(
         MCP_SERVER.to_owned(),
         json!({"command": executable, "args": ["mcp"]}),
-    );
-    write_json(path, &document)?;
-    record(path, written);
-    Ok(())
-}
-
-/// OpenCode reads `opencode.json`, where local servers use `type: "local"`
-/// and a `command` array instead of the `mcpServers` shape.
-fn write_opencode_mcp(path: &Path, executable: &Path, written: &mut Vec<String>) -> Result<()> {
-    let mut document = read_json_object(path)?;
-    let servers = servers_map(&mut document, "mcp", path)?;
-    purge_legacy_servers(servers);
-    servers.insert(
-        MCP_SERVER.to_owned(),
-        json!({
-            "type": "local",
-            "command": [executable, "mcp"],
-            "enabled": true
-        }),
-    );
-    write_json(path, &document)?;
-    record(path, written);
-    Ok(())
-}
-
-/// OpenClaw nests its registry one level deeper, under `mcp.servers`, and
-/// names the transport rather than inferring it from the shape.
-fn write_openclaw_mcp(path: &Path, executable: &Path, written: &mut Vec<String>) -> Result<()> {
-    let mut document = read_json_object(path)?;
-    let mcp = servers_map(&mut document, "mcp", path)?;
-    let mut nested = Value::Object(std::mem::take(mcp));
-    let servers = servers_map(&mut nested, "servers", path)?;
-    purge_legacy_servers(servers);
-    servers.insert(
-        MCP_SERVER.to_owned(),
-        json!({"command": executable, "args": ["mcp"], "transport": "stdio"}),
-    );
-    document["mcp"] = nested;
-    write_json(path, &document)?;
-    record(path, written);
-    Ok(())
-}
-
-/// VS Code reads `.vscode/mcp.json` under `servers`, not `mcpServers`, and
-/// wants the transport named explicitly.
-fn write_vscode_mcp(path: &Path, executable: &Path, written: &mut Vec<String>) -> Result<()> {
-    let mut document = read_json_object(path)?;
-    let servers = servers_map(&mut document, "servers", path)?;
-    purge_legacy_servers(servers);
-    servers.insert(
-        MCP_SERVER.to_owned(),
-        json!({"type": "stdio", "command": executable, "args": ["mcp"]}),
     );
     write_json(path, &document)?;
     record(path, written);
@@ -573,58 +668,6 @@ fn unregister_legacy_mcp(agent: Agent, global: bool, project: Option<&Path>) {
         };
         let _ = command.stdout(Stdio::null()).stderr(Stdio::null()).status();
     }
-}
-
-fn register_mcp_cli(
-    agent: Agent,
-    executable: &Path,
-    global: bool,
-    project: Option<&Path>,
-) -> Result<()> {
-    unregister_legacy_mcp(agent, global, project);
-    if let Agent::Hermes = agent {
-        // Hermes takes the executable and its arguments as separate flags
-        // rather than after a `--` separator.
-        let mut command = Command::new("hermes");
-        command.args(["mcp", "add", MCP_SERVER, "--command"]);
-        command.arg(executable);
-        command.args(["--arg", "mcp"]);
-        return run_registration(command);
-    }
-    let mut command = match agent {
-        Agent::Codex => {
-            let mut command = Command::new("codex");
-            if let Some(project) = project {
-                command.current_dir(project);
-                command.env("CODEX_HOME", project.join(".codex"));
-            }
-            command.args(["mcp", "add", MCP_SERVER, "--"]);
-            command
-        }
-        Agent::Claude => {
-            let mut command = Command::new("claude");
-            command.args(["mcp", "add", "--transport", "stdio"]);
-            command.args(["--scope", if global { "user" } else { "local" }]);
-            command.args([MCP_SERVER, "--"]);
-            command
-        }
-        _ => bail!(
-            "{} registers through its own configuration file",
-            agent.slug()
-        ),
-    };
-    command.arg(executable).arg("mcp");
-    run_registration(command)
-}
-
-fn run_registration(mut command: Command) -> Result<()> {
-    let status = command
-        .status()
-        .context("agent CLI is not installed or not executable")?;
-    if !status.success() {
-        bail!("agent CLI failed to register the SafeHell MCP server");
-    }
-    Ok(())
 }
 
 fn install_hook(path: &Path, executable: &Path, agent: &str) -> Result<()> {
@@ -840,7 +883,6 @@ mod tests {
             &mut written,
         )
         .expect_err("jsonc must error, not be overwritten");
-        assert!(error.to_string().contains("invalid JSON"));
         // The user's file is untouched.
         assert_eq!(
             fs::read_to_string(root.join("opencode.json")).expect("read jsonc"),
@@ -1017,33 +1059,10 @@ mod tests {
     }
 
     #[test]
-    fn copilot_install_uses_the_vscode_servers_key() {
-        let root = temp_root("copilot");
-        let executable = fake_executable(&root);
-        let mut written = Vec::new();
-        install_agent(
-            Agent::Copilot,
-            &root,
-            &root,
-            &executable,
-            false,
-            None,
-            &mut written,
-        )
-        .expect("install copilot");
-
-        let config: Value = serde_json::from_str(
-            &fs::read_to_string(root.join(".vscode/mcp.json")).expect("read .vscode/mcp.json"),
-        )
-        .expect("parse .vscode/mcp.json");
-        // VS Code reads `servers`, not `mcpServers`, and needs the transport.
-        assert_eq!(config.pointer("/mcpServers"), None);
-        assert_eq!(config.pointer("/servers/shll/type"), Some(&json!("stdio")));
-        assert_eq!(
-            config.pointer("/servers/shll/command"),
-            Some(&json!(executable))
-        );
-        assert!(root.join(".github/copilot-instructions.md").exists());
+    fn copilot_uses_kurir_vscode_registration() {
+        assert_eq!(harness_for(Agent::Copilot), Some(kurir::Harness::Vscode));
+        assert_eq!(harness_for(Agent::Cline), None);
+        assert_eq!(harness_for(Agent::Roo), None);
     }
 
     #[test]

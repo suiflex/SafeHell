@@ -282,38 +282,32 @@ the model to prefer SafeHell over direct SSH. Per agent:
 
 |Agent|MCP registration|Policy seed|Guard hook|
 |---|---|---|---|
-|`codex`|`codex mcp add`|`AGENTS.md` (project) or `.codex/AGENTS.md` (global)|`.codex/hooks.json` `PreToolUse`|
-|`claude`|`claude mcp add`|`CLAUDE.md` (project) or `.claude/CLAUDE.md` (global)|`.claude/settings.json` `PreToolUse`|
-|`cursor`|`.cursor/mcp.json`|`.cursor/rules/safehell.mdc`|—|
-|`opencode`|`opencode.json` `mcp` map|`AGENTS.md` (project) or `.config/opencode/AGENTS.md`|—|
-|`hermes`|`hermes mcp add`|`AGENTS.md` (project only)|—|
-|`openclaw`|`openclaw.json` `mcp.servers` map|`AGENTS.md` (project only)|—|
-|`antigravity`|`.agents/mcp_config.json` (project) or `~/.gemini/config/mcp_config.json`|`.agents/rules/safehell.md` (project) or `.gemini/GEMINI.md`|—|
-|`windsurf`|`~/.codeium/windsurf/mcp_config.json`|`AGENTS.md` (project) or `.codeium/windsurf/memories/global_rules.md`|—|
-|`copilot`|`.vscode/mcp.json` `servers` map|`.github/copilot-instructions.md`|—|
-|`cline`|VS Code `cline_mcp_settings.json`|`AGENTS.md` (project) or `.agents/AGENTS.md`|—|
-|`roo`|VS Code `cline_mcp_settings.json`|`AGENTS.md` (project) or `.roo/rules/safehell.md`|—|
+|`codex`|Kurir → `codex mcp add`|`AGENTS.md` (project) or `.codex/AGENTS.md` (global)|`.codex/hooks.json` `PreToolUse`|
+|`claude`|Kurir → `claude mcp add`|`CLAUDE.md` (project) or `.claude/CLAUDE.md` (global)|`.claude/settings.json` `PreToolUse`|
+|`cursor`|Kurir → `.cursor/mcp.json`|`.cursor/rules/safehell.mdc`|—|
+|`opencode`|Kurir → `opencode.json` `mcp` map|`AGENTS.md` (project) or `.config/opencode/AGENTS.md`|—|
+|`hermes`|Kurir → `hermes mcp add`|`AGENTS.md` (project only)|—|
+|`openclaw`|Kurir → `openclaw.json` `mcp.servers` map|`AGENTS.md` (project only)|—|
+|`antigravity`|Kurir → `.agents/mcp_config.json` (project) or `~/.gemini/config/mcp_config.json`|`.agents/rules/safehell.md` (project) or `.gemini/GEMINI.md`|—|
+|`windsurf`|Kurir → `~/.codeium/windsurf/mcp_config.json`|`AGENTS.md` (project) or `.codeium/windsurf/memories/global_rules.md`|—|
+|`copilot`|Kurir → `code --add-mcp`|`.github/copilot-instructions.md`|—|
+|`cline`|VS Code `cline_mcp_settings.json` (local fallback)|`AGENTS.md` (project) or `.agents/AGENTS.md`|—|
+|`roo`|VS Code `cline_mcp_settings.json` (local fallback)|`AGENTS.md` (project) or `.roo/rules/safehell.md`|—|
 
-Four of those keep their MCP registry outside the repository, so SafeHell
-writes it where the agent actually reads it rather than leaving a policy that
-names tools nothing can reach: Windsurf and Hermes are user-level in both
-scopes, and Cline and Roo Code store theirs in the VS Code profile — skipped
-with a notice when that extension has never run here, because inventing the
-profile tree would leave settings no editor loads. Copilot is the mirror case:
-its instructions and `.vscode/mcp.json` are both repository-scoped, so
-`--global` writes nothing for it instead of guessing at a user-level path.
-Hermes keeps servers in `~/.hermes/config.yaml`, which its own CLI owns —
-SafeHell shells out to `hermes mcp add` rather than rewriting YAML.
+Kurir owns the shared harness paths, entry shapes, backups, delegated CLIs,
+and conflict handling. Cline and Roo remain local fallback integrations
+because their extension-owned VS Code profile is not modeled by Kurir yet.
 
 Installing removes any earlier `safeshell` or `safehell` registration first
-and replaces an existing `shll` registration, so upgrading never leaves two
-servers exposing the same tools or a stale binary path behind. Policy seeds in
-`AGENTS.md`, `CLAUDE.md`, and `.gemini/GEMINI.md` are created only when absent
-and are never rewritten — the file may hold the user's own instructions.
+where the harness exposes a removable or file-based registry, then replaces
+the current `shll` registration. This keeps upgrades from leaving duplicate
+servers or stale binary paths behind. Policy seeds in `AGENTS.md`, `CLAUDE.md`,
+and `.gemini/GEMINI.md` are created only when absent.
+
 Owned files (`.cursor/rules/safehell.mdc`, `.agents/rules/safehell.md`) are
-refreshed on re-install. Existing JSON settings are backed up as
-`*.json.safehell.bak` before modification. The guard blocks direct `ssh`,
-`scp`, `sftp`, `sshpass`, and `rsync` calls. The MCP server exposes only:
+refreshed on re-install. Kurir backs up rewritten configuration as `<path>.bak`;
+the Cline/Roo fallback uses the SafeHell-specific JSON backup. The guard blocks
+direct `ssh`, `scp`, `sftp`, `sshpass`, and `rsync` calls. The MCP server exposes only:
 
 - `list_servers`
 - `execute` (write/destructive capable; still requires broker approval)
