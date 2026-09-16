@@ -23,6 +23,7 @@ interprocess = { version = "2.4.3", features = ["tokio"] }
 keyring = "4.1.6"
 regex = "1.11"
 rmcp = { version = "3.1.0", features = ["transport-io"] }
+kurir = "0.2"
 rpassword = "7.4"
 russh = "0.62.5"
 serde = { version = "1.0", features = ["derive"] }
