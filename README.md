@@ -11,8 +11,8 @@ SafeHell is a local approval broker for SSH commands requested by AI coding agen
 - SafeHell never places stored passwords in `.safehell.toml`, CLI arguments, MCP schemas, or audit logs; literal password values are redacted from buffered agent-facing output.
 - The vault is encrypted with an age X25519 identity stored in the operating-system credential store.
 - Password credentials are bound to an exact host, port, and username.
-- Every command needs a one-time `y` approval in `safehell serve`, except commands the project explicitly lists under `autoapprove.allow`.
-- Commands matching `autoapprove.deny` are refused before any approval path, in both attended and unattended mode.
+- Every command needs a one-time `y` approval in `safehell serve`, except commands the project explicitly lists under `autoapprove.allow` or commands handled by `serve --yes`.
+- In attended mode, commands matching `autoapprove.deny` are refused before any approval path.
 - SSH host keys are checked against SafeHell's own `known_hosts`; changed keys are rejected.
 - Command output is buffered, bounded, and redacted before it is returned to the caller. Redaction covers bearer tokens, private-key blocks, `scheme://user:pass@` URLs, AWS access key ids, and `*_URL`/`*_TOKEN`/`*_SECRET`-style assignments, so container environment dumps lose their values as well as their secrets.
 
@@ -149,7 +149,7 @@ Limits are capped at 10 minutes and 10 MiB. Unknown config fields are rejected, 
 
 ### Approval rules
 
-Patterns use `*` as the only wildcard and are matched against the whole command string.
+In attended mode, patterns use `*` as the only wildcard and are matched against the whole command string.
 
 | Command matches | Result |
 | --- | --- |
@@ -157,7 +157,7 @@ Patterns use `*` as the only wildcard and are matched against the whole command 
 | `autoapprove.allow` | runs without a prompt |
 | neither | waits for `y` in the broker terminal, up to `approval_timeout_seconds` |
 
-`allow = ["*"]` is rejected: automatic approval always has to name the commands it covers. An approval keeps covering the byte-identical command for `approval_ttl_seconds`, an identical command inside `dedup_seconds` is refused instead of run twice, and the broker stops executing once `max_commands_per_hour` is reached.
+`allow = ["*"]` is rejected in the config; use `--yes` for one broker session with full approval. In attended mode, an approval keeps covering the byte-identical command for `approval_ttl_seconds`, an identical command inside `dedup_seconds` is refused instead of run twice, and the broker stops executing once `max_commands_per_hour` is reached.
 
 ## Run
 
@@ -167,9 +167,12 @@ Keep the broker visible in its own terminal:
 safehell serve
 ```
 
-`safehell serve --yes` runs the broker unattended: allow-listed commands still
-execute, and anything that would need a prompt is denied instead of waiting.
-Every decision is recorded in the audit log.
+`safehell serve --yes` runs the broker in full approval mode for that session.
+It runs valid commands and file transfers without prompts or `autoapprove`
+policy checks, including repeated commands and commands beyond the hourly
+budget. Command validation, project file boundaries, SSH host-key checks, and
+audit logging still apply. `safehell tray --yes` and the tray's Full Approval
+Mode toggle use the same behavior.
 
 To run the approval broker from the desktop menu bar without keeping a
 terminal open:
@@ -233,8 +236,8 @@ safehell audit --tail 50
 ```
 
 Each entry carries the timestamp, project id, alias, SHA-256 of the command, the
-outcome (`approved`, `auto-approved`, `ttl-approved`, `denied`, `blocked`,
-`duplicate`, `throttled`, `expired`, `unattended`, `executed`, `failed`,
+outcome (`approved`, `auto-approved`, `auto-approved (--yes)`, `ttl-approved`, `denied`, `blocked`,
+`duplicate`, `throttled`, `expired`, `executed`, `failed`,
 `transferred`, `transfer-failed`), the duration, and the exit status. Command
 text is hashed rather than stored.
 
