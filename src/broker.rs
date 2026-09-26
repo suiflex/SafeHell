@@ -68,9 +68,7 @@ pub async fn serve_with_shutdown(
     });
     println!("SafeHell approval broker is running. Keep this terminal open.");
     if auto_approve.load(Ordering::Relaxed) {
-        println!(
-            "AUTO-APPROVE MODE: allow-listed commands run without a prompt. Anything outside `autoapprove.allow` still needs approval, and `autoapprove.deny` always wins."
-        );
+        println!("FULL APPROVAL MODE (--yes): commands run without approval policy checks.");
     }
     loop {
         tokio::select! {
@@ -453,7 +451,11 @@ async fn transfer(
     // Refuse an out-of-project path before spending an operator's approval on it.
     let local = match &transfer {
         Transfer::Get { local_path, .. } | Transfer::Put { local_path, .. } => {
-            match local_in_project(&project, local_path) {
+            match local_in_project(
+                &project,
+                local_path,
+                matches!(&transfer, Transfer::Put { .. }),
+            ) {
                 Ok(local) => local,
                 Err(error) => {
                     return Ok(ipc::Response::Denied {
@@ -509,7 +511,11 @@ async fn transfer(
 
 /// Local transfer endpoints stay inside the project, so an agent cannot use the
 /// broker to read or overwrite files elsewhere on the workstation.
-fn local_in_project(project: &config::Project, path: &Path) -> Result<std::path::PathBuf> {
+fn local_in_project(
+    project: &config::Project,
+    path: &Path,
+    for_read: bool,
+) -> Result<std::path::PathBuf> {
     let candidate = if path.is_absolute() {
         path.to_path_buf()
     } else {
@@ -524,11 +530,19 @@ fn local_in_project(project: &config::Project, path: &Path) -> Result<std::path:
     if !parent.starts_with(&root) {
         bail!("local path must stay inside the project directory");
     }
-    Ok(parent.join(
+    let local = parent.join(
         candidate
             .file_name()
             .context("local path has no file name")?,
-    ))
+    );
+    if for_read {
+        let resolved = local.canonicalize()?;
+        if !resolved.starts_with(&root) {
+            bail!("local path must stay inside the project directory");
+        }
+        return Ok(resolved);
+    }
+    Ok(local)
 }
 
 enum Verdict {
@@ -540,8 +554,7 @@ enum Verdict {
     },
 }
 
-/// Everything that can stop a command before it reaches the remote host, in the
-/// order the operator expects: deny list, duplicates, budget, then approval.
+/// In attended mode, apply deny list, duplicates, budget, then approval.
 async fn verdict(
     server: &config::Server,
     limits: &config::Limits,
@@ -551,6 +564,10 @@ async fn verdict(
     reason: Option<&str>,
     state: &State,
 ) -> Result<Verdict> {
+    if state.auto_approve.load(Ordering::Relaxed) {
+        println!("Approval : auto-approved (--yes)");
+        return Ok(Verdict::Run("auto-approved (--yes)"));
+    }
     let gate = &state.gate;
     let refuse =
         |reason: String, retry_after_seconds: Option<u64>, outcome: &'static str| Verdict::Refuse {
@@ -601,13 +618,6 @@ async fn verdict(
             limits.approval_ttl_seconds
         );
         return Ok(Verdict::Run("ttl-approved"));
-    }
-    if state.auto_approve.load(Ordering::Relaxed) {
-        return Ok(refuse(
-            "broker runs unattended (--yes); only commands in autoapprove.allow execute".into(),
-            None,
-            "unattended",
-        ));
     }
     // One prompt at a time: the console is shared by every in-flight request.
     let _console = state.terminal.lock().await;
@@ -752,6 +762,85 @@ fn audit(
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn yes_approves_commands_regardless_of_policy() {
+        let server = config::Server {
+            host: "example.test".into(),
+            port: 22,
+            username: "deploy".into(),
+            auth: config::Auth::SshAgent,
+            autoapprove: config::AutoApprove {
+                allow: vec![],
+                deny: vec!["rm *".into()],
+            },
+        };
+        let mut limits = config::Limits::default();
+        let state = State {
+            auto_approve: Arc::new(AtomicBool::new(true)),
+            approval_tx: None,
+            gate: Mutex::new(Gate::default()),
+            terminal: tokio::sync::Mutex::new(()),
+            jobs: Mutex::new(Vec::new()),
+        };
+        assert!(matches!(
+            verdict(&server, &limits, "a", "prod", "uptime", None, &state)
+                .await
+                .unwrap(),
+            Verdict::Run(_)
+        ));
+        assert!(matches!(
+            verdict(
+                &server,
+                &limits,
+                "b",
+                "prod",
+                "base64 -d > '/tmp/x'",
+                None,
+                &state
+            )
+            .await
+            .unwrap(),
+            Verdict::Run(_)
+        ));
+        assert!(matches!(
+            verdict(&server, &limits, "c", "prod", "rm /tmp/x", None, &state)
+                .await
+                .unwrap(),
+            Verdict::Run(_)
+        ));
+        state
+            .gate
+            .lock()
+            .unwrap()
+            .record_execution("a", Instant::now());
+        assert!(matches!(
+            verdict(&server, &limits, "a", "prod", "uptime", None, &state)
+                .await
+                .unwrap(),
+            Verdict::Run(_)
+        ));
+        limits.max_commands_per_hour = 1;
+        assert!(matches!(
+            verdict(&server, &limits, "d", "prod", "whoami", None, &state)
+                .await
+                .unwrap(),
+            Verdict::Run(_)
+        ));
+        state.auto_approve.store(false, Ordering::Relaxed);
+        for (hash, command, expected) in [
+            ("c", "rm /tmp/x", "blocked"),
+            ("a", "uptime", "duplicate"),
+            ("d", "whoami", "throttled"),
+        ] {
+            assert!(matches!(
+                verdict(&server, &limits, hash, "prod", command, None, &state)
+                    .await
+                    .unwrap(),
+                Verdict::Refuse { outcome, .. } if outcome == expected
+            ));
+        }
+    }
+
     #[test]
     fn only_explicit_yes_approves_a_command() {
         assert!(approves("y\n"));
@@ -802,9 +891,18 @@ mod tests {
             },
             root: root.clone(),
         };
-        assert!(local_in_project(&project, Path::new("logs/app.log")).is_ok());
-        assert!(local_in_project(&project, Path::new("../escape.log")).is_err());
-        assert!(local_in_project(&project, Path::new("/etc/passwd")).is_err());
+        assert!(local_in_project(&project, Path::new("logs/app.log"), false).is_ok());
+        assert!(local_in_project(&project, Path::new("../escape.log"), false).is_err());
+        assert!(local_in_project(&project, Path::new("/etc/passwd"), true).is_err());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+            let outside = root.with_extension("outside");
+            std::fs::write(&outside, b"secret").unwrap();
+            symlink(&outside, root.join("logs/link")).unwrap();
+            assert!(local_in_project(&project, Path::new("logs/link"), true).is_err());
+            std::fs::remove_file(outside).unwrap();
+        }
         std::fs::remove_dir_all(&root).unwrap();
     }
 }

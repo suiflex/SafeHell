@@ -43,15 +43,13 @@ enum Command {
     },
     /// Run the foreground approval broker.
     Serve {
-        /// Run unattended: allow-listed commands execute, anything that would
-        /// prompt is denied instead of waiting for an operator.
+        /// Approve all valid requests for this broker session without policy checks.
         #[arg(long)]
         yes: bool,
     },
     /// Run the background approval broker in the desktop system tray / menu bar.
     Tray {
-        /// Run unattended: allow-listed commands execute, anything that would
-        /// prompt is denied instead of waiting for an operator.
+        /// Approve all valid requests for this broker session without policy checks.
         #[arg(long)]
         yes: bool,
         /// Keep this process attached to the current terminal.

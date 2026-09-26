@@ -189,7 +189,7 @@ impl TrayApp {
         let menu_toggle = MenuItem::with_id(ID_TOGGLE, "⏹️  Stop Broker", true, None);
         let menu_autoapprove = CheckMenuItem::with_id(
             ID_AUTOAPPROVE,
-            "⚡ Auto-Approve Allowed Rules",
+            "⚡ Full Approval Mode",
             true,
             initial_auto_approve,
             None,
@@ -387,7 +387,7 @@ impl TrayApp {
         let status = if next { "Enabled" } else { "Disabled" };
         let _ = notify_rust::Notification::new()
             .summary("SafeHell: Auto-Approve Mode")
-            .body(&format!("Auto-approve allowed rules: {status}"))
+            .body(&format!("Full approval mode: {status}"))
             .show();
     }
 
