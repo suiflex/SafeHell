@@ -124,30 +124,48 @@ pub(crate) enum ServerScope {
 }
 #[derive(Clone, Copy, ValueEnum, PartialEq, Eq, Debug)]
 enum Agent {
+    ArsyCode,
     Codex,
     Claude,
+    ClaudeCode,
+    ClaudeDesktop,
     Cursor,
+    Gemini,
     Opencode,
     Hermes,
     Openclaw,
     Antigravity,
     Windsurf,
     Copilot,
+    CopilotCli,
+    Zed,
+    AntigravityDesktop,
+    Jcode,
+    Zcode,
     Cline,
     Roo,
 }
 
 /// Every agent, in the order the picker lists them.
-const AGENTS: [Agent; 11] = [
+const AGENTS: [Agent; 20] = [
+    Agent::ArsyCode,
     Agent::Codex,
     Agent::Claude,
+    Agent::ClaudeCode,
+    Agent::ClaudeDesktop,
     Agent::Cursor,
+    Agent::Gemini,
     Agent::Opencode,
     Agent::Hermes,
     Agent::Openclaw,
     Agent::Antigravity,
     Agent::Windsurf,
     Agent::Copilot,
+    Agent::CopilotCli,
+    Agent::Zed,
+    Agent::AntigravityDesktop,
+    Agent::Jcode,
+    Agent::Zcode,
     Agent::Cline,
     Agent::Roo,
 ];
@@ -166,6 +184,22 @@ impl Agent {
             Agent::Copilot => "copilot",
             Agent::Cline => "cline",
             Agent::Roo => "roo",
+            _ => self.new_slug(),
+        }
+    }
+
+    fn new_slug(self) -> &'static str {
+        match self {
+            Agent::ArsyCode => "arsy-code",
+            Agent::ClaudeCode => "claude-code",
+            Agent::ClaudeDesktop => "claude-desktop",
+            Agent::Gemini => "gemini",
+            Agent::CopilotCli => "copilot-cli",
+            Agent::Zed => "zed",
+            Agent::AntigravityDesktop => "antigravity-desktop",
+            Agent::Jcode => "jcode",
+            Agent::Zcode => "zcode",
+            _ => unreachable!("existing agent slug"),
         }
     }
 
@@ -184,6 +218,22 @@ impl Agent {
             Agent::Copilot => ".vscode/mcp.json, .github/copilot-instructions.md",
             Agent::Cline => "VS Code MCP settings, AGENTS.md",
             Agent::Roo => "VS Code MCP settings, .roo/rules/safehell.md",
+            _ => self.new_summary(),
+        }
+    }
+
+    fn new_summary(self) -> &'static str {
+        match self {
+            Agent::ArsyCode => "arsy mcp add, AGENTS.md",
+            Agent::ClaudeCode => ".mcp.json, CLAUDE.md",
+            Agent::ClaudeDesktop => "Claude Desktop MCP settings, AGENTS.md",
+            Agent::Gemini => "gemini mcp add, GEMINI.md",
+            Agent::CopilotCli => "~/.copilot/mcp-config.json, AGENTS.md",
+            Agent::Zed => "Zed settings.json, AGENTS.md",
+            Agent::AntigravityDesktop => "Antigravity Desktop MCP settings, AGENTS.md",
+            Agent::Jcode => "~/.jcode/config.json, AGENTS.md",
+            Agent::Zcode => ".zcode/config.json, AGENTS.md",
+            _ => unreachable!("existing agent summary"),
         }
     }
 }
