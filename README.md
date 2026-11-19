@@ -272,7 +272,7 @@ safehell install --global --agent codex,claude
 
 Detection reads the agent's own configuration (`.codex/`, `.claude/`,
 `.cursor/`, `opencode.json`, `.hermes/`, `openclaw.json`, `.agents/rules/`,
-`.windsurf/`, `.github/copilot-instructions.md`, `.clinerules`, `.roo/`) and
+`.windsurf/`, `.zed/`, `.github/copilot-instructions.md`, `.clinerules`, `.roo/`) and
 never a file SafeHell wrote, so a re-run cannot add a target it created last
 time.
 
@@ -282,21 +282,33 @@ the model to prefer SafeHell over direct SSH. Per agent:
 
 |Agent|MCP registration|Policy seed|Guard hook|
 |---|---|---|---|
+|`arsy-code`|Kurir → `arsy mcp add`|`AGENTS.md` (project only)|—|
 |`codex`|Kurir → `codex mcp add`|`AGENTS.md` (project) or `.codex/AGENTS.md` (global)|`.codex/hooks.json` `PreToolUse`|
 |`claude`|Kurir → `claude mcp add`|`CLAUDE.md` (project) or `.claude/CLAUDE.md` (global)|`.claude/settings.json` `PreToolUse`|
+|`claude-code`|Kurir → `.mcp.json` (project) or `~/.claude.json`|`CLAUDE.md` (project) or `.claude/CLAUDE.md` (global)|—|
+|`claude-desktop`|Kurir → Claude Desktop config|`AGENTS.md`|—|
 |`cursor`|Kurir → `.cursor/mcp.json`|`.cursor/rules/safehell.mdc`|—|
+|`gemini`|Kurir → `gemini mcp add`|`GEMINI.md` (project) or `.gemini/GEMINI.md` (global)|—|
 |`opencode`|Kurir → `opencode.json` `mcp` map|`AGENTS.md` (project) or `.config/opencode/AGENTS.md`|—|
 |`hermes`|Kurir → `hermes mcp add`|`AGENTS.md` (project only)|—|
 |`openclaw`|Kurir → `openclaw.json` `mcp.servers` map|`AGENTS.md` (project only)|—|
 |`antigravity`|Kurir → `.agents/mcp_config.json` (project) or `~/.gemini/config/mcp_config.json`|`.agents/rules/safehell.md` (project) or `.gemini/GEMINI.md`|—|
 |`windsurf`|Kurir → `~/.codeium/windsurf/mcp_config.json`|`AGENTS.md` (project) or `.codeium/windsurf/memories/global_rules.md`|—|
 |`copilot`|Kurir → `code --add-mcp`|`.github/copilot-instructions.md`|—|
+|`copilot-cli`|Kurir → `~/.copilot/mcp-config.json`|`AGENTS.md`|—|
+|`zed`|Kurir → Zed `settings.json`|`AGENTS.md`|—|
+|`antigravity-desktop`|Kurir → Antigravity Desktop config|`AGENTS.md`|—|
+|`jcode`|Kurir → `~/.jcode/config.json` (user scope)|`AGENTS.md`|—|
+|`zcode`|Kurir → `.zcode/config.json` (project) or `~/.zcode/cli/config.json`|`AGENTS.md`|—|
 |`cline`|VS Code `cline_mcp_settings.json` (local fallback)|`AGENTS.md` (project) or `.agents/AGENTS.md`|—|
 |`roo`|VS Code `cline_mcp_settings.json` (local fallback)|`AGENTS.md` (project) or `.roo/rules/safehell.md`|—|
 
 Kurir owns the shared harness paths, entry shapes, backups, delegated CLIs,
 and conflict handling. Cline and Roo remain local fallback integrations
 because their extension-owned VS Code profile is not modeled by Kurir yet.
+The new harnesses require an explicit `--agent` selection, except Zed when
+`.zed/` exists in the project. OMP is not an installer target because Kurir
+only prints a portable configuration snippet for it.
 
 Installing removes any earlier `safeshell` or `safehell` registration first
 where the harness exposes a removable or file-based registry, then replaces
