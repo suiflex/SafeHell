@@ -110,6 +110,7 @@ pub fn install(selection: AgentSelection, global: bool) -> Result<()> {
             detected
         }
     };
+    let only_snippet = agents.iter().all(|agent| *agent == Agent::Omp);
     let mut written = Vec::new();
     let home = home()?;
     let root = agent_root(global, project.as_deref())?;
@@ -124,10 +125,12 @@ pub fn install(selection: AgentSelection, global: bool) -> Result<()> {
             &mut written,
         )?;
     }
-    println!(
-        "Installed SafeHell MCP integration ({})",
-        if global { "global" } else { "project" }
-    );
+    if !only_snippet {
+        println!(
+            "Installed SafeHell MCP integration ({})",
+            if global { "global" } else { "project" }
+        );
+    }
     for path in &written {
         println!("  {path}");
     }
@@ -202,6 +205,7 @@ fn install_agent(
         Agent::ArsyCode | Agent::Gemini | Agent::Hermes | Agent::Copilot => {
             install_cli_agent(agent, root, home, executable, global, project, written)
         }
+        Agent::Omp => register_mcp(agent, root, home, executable, global, project, written),
         Agent::Cline | Agent::Roo => {
             install_extension_agent(agent, root, home, executable, global, written)
         }
@@ -385,6 +389,7 @@ fn new_harness_for(agent: Agent) -> kurir::Harness {
         Agent::AntigravityDesktop => kurir::Harness::AntigravityDesktop,
         Agent::Jcode => kurir::Harness::Jcode,
         Agent::Zcode => kurir::Harness::Zcode,
+        Agent::Omp => kurir::Harness::Omp,
         _ => unreachable!("existing agent harness"),
     }
 }
@@ -422,6 +427,13 @@ fn register_mcp(
     );
     let result = kurir::register(harness, &spec, &options)
         .with_context(|| format!("failed to register SafeHell with {}", agent.slug()))?;
+    if harness.is_snippet_only() {
+        println!("OMP requires manual MCP configuration. Add this snippet to OMP:");
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&kurir::registration::snippet_for(&spec))?
+        );
+    }
     if let Some(target) = result.target {
         record(&target, written);
     }
@@ -1239,6 +1251,34 @@ mod tests {
     fn new_cli_harnesses_map_to_kurir() {
         assert_eq!(harness_for(Agent::ArsyCode), Some(kurir::Harness::ArsyCode));
         assert_eq!(harness_for(Agent::Gemini), Some(kurir::Harness::GeminiCli));
+    }
+
+    #[test]
+    fn omp_produces_a_manual_snippet_without_writing_configuration() {
+        let root = temp_root("omp");
+        let executable = fake_executable(&root);
+        let mut written = Vec::new();
+        install_agent(
+            Agent::Omp,
+            &root,
+            &root,
+            &executable,
+            false,
+            None,
+            &mut written,
+        )
+        .expect("prepare OMP snippet");
+        assert!(written.is_empty());
+        assert_eq!(fs::read_dir(&root).expect("read root").count(), 1);
+        let spec = kurir::ServerSpec::stdio(
+            MCP_SERVER,
+            executable.clone().to_string_lossy(),
+            vec!["mcp".into()],
+        );
+        assert_eq!(
+            kurir::registration::snippet_for(&spec).pointer("/mcpServers/shll/command"),
+            Some(&json!(executable))
+        );
     }
 
     #[test]

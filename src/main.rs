@@ -142,12 +142,13 @@ enum Agent {
     AntigravityDesktop,
     Jcode,
     Zcode,
+    Omp,
     Cline,
     Roo,
 }
 
 /// Every agent, in the order the picker lists them.
-const AGENTS: [Agent; 20] = [
+const AGENTS: [Agent; 21] = [
     Agent::ArsyCode,
     Agent::Codex,
     Agent::Claude,
@@ -166,6 +167,7 @@ const AGENTS: [Agent; 20] = [
     Agent::AntigravityDesktop,
     Agent::Jcode,
     Agent::Zcode,
+    Agent::Omp,
     Agent::Cline,
     Agent::Roo,
 ];
@@ -199,6 +201,7 @@ impl Agent {
             Agent::AntigravityDesktop => "antigravity-desktop",
             Agent::Jcode => "jcode",
             Agent::Zcode => "zcode",
+            Agent::Omp => "omp",
             _ => unreachable!("existing agent slug"),
         }
     }
@@ -233,6 +236,7 @@ impl Agent {
             Agent::AntigravityDesktop => "Antigravity Desktop MCP settings, AGENTS.md",
             Agent::Jcode => "~/.jcode/config.json, AGENTS.md",
             Agent::Zcode => ".zcode/config.json, AGENTS.md",
+            Agent::Omp => "print manual MCP configuration snippet",
             _ => unreachable!("existing agent summary"),
         }
     }
