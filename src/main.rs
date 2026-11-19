@@ -236,7 +236,7 @@ impl Agent {
             Agent::AntigravityDesktop => "Antigravity Desktop MCP settings, AGENTS.md",
             Agent::Jcode => "~/.jcode/config.json, AGENTS.md",
             Agent::Zcode => ".zcode/config.json, AGENTS.md",
-            Agent::Omp => "print manual MCP configuration snippet",
+            Agent::Omp => ".omp/mcp.json (project) or ~/.omp/agent/mcp.json",
             _ => unreachable!("existing agent summary"),
         }
     }

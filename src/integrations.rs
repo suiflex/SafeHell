@@ -110,7 +110,6 @@ pub fn install(selection: AgentSelection, global: bool) -> Result<()> {
             detected
         }
     };
-    let only_snippet = agents.iter().all(|agent| *agent == Agent::Omp);
     let mut written = Vec::new();
     let home = home()?;
     let root = agent_root(global, project.as_deref())?;
@@ -125,12 +124,10 @@ pub fn install(selection: AgentSelection, global: bool) -> Result<()> {
             &mut written,
         )?;
     }
-    if !only_snippet {
-        println!(
-            "Installed SafeHell MCP integration ({})",
-            if global { "global" } else { "project" }
-        );
-    }
+    println!(
+        "Installed SafeHell MCP integration ({})",
+        if global { "global" } else { "project" }
+    );
     for path in &written {
         println!("  {path}");
     }
@@ -427,13 +424,6 @@ fn register_mcp(
     );
     let result = kurir::register(harness, &spec, &options)
         .with_context(|| format!("failed to register SafeHell with {}", agent.slug()))?;
-    if harness.is_snippet_only() {
-        println!("OMP requires manual MCP configuration. Add this snippet to OMP:");
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&kurir::registration::snippet_for(&spec))?
-        );
-    }
     if let Some(target) = result.target {
         record(&target, written);
     }
@@ -471,6 +461,13 @@ fn registration_config(agent: Agent, root: &Path, home: &Path, global: bool) -> 
             }
         }
         Agent::Windsurf => home.join(".codeium/windsurf/mcp_config.json"),
+        Agent::Omp => {
+            if global {
+                home.join(".omp/agent/mcp.json")
+            } else {
+                root.join(".omp/mcp.json")
+            }
+        }
         Agent::ClaudeCode
         | Agent::ClaudeDesktop
         | Agent::AntigravityDesktop
@@ -1254,9 +1251,13 @@ mod tests {
     }
 
     #[test]
-    fn omp_produces_a_manual_snippet_without_writing_configuration() {
+    fn omp_registers_project_mcp_without_removing_existing_servers() {
         let root = temp_root("omp");
         let executable = fake_executable(&root);
+        let target = root.join(".omp/mcp.json");
+        fs::create_dir_all(target.parent().unwrap()).expect("create OMP directory");
+        fs::write(&target, r#"{"mcpServers":{"other":{"command":"other"}}}"#)
+            .expect("write OMP config");
         let mut written = Vec::new();
         install_agent(
             Agent::Omp,
@@ -1267,17 +1268,46 @@ mod tests {
             None,
             &mut written,
         )
-        .expect("prepare OMP snippet");
-        assert!(written.is_empty());
-        assert_eq!(fs::read_dir(&root).expect("read root").count(), 1);
-        let spec = kurir::ServerSpec::stdio(
-            MCP_SERVER,
-            executable.clone().to_string_lossy(),
-            vec!["mcp".into()],
+        .expect("register OMP project MCP");
+        assert!(written.iter().any(|path| path.contains(".omp/mcp.json")));
+        let config: Value = serde_json::from_slice(&fs::read(&target).expect("read OMP config"))
+            .expect("parse OMP config");
+        assert_eq!(
+            config.pointer("/mcpServers/shll/command"),
+            Some(&json!(executable))
         );
         assert_eq!(
-            kurir::registration::snippet_for(&spec).pointer("/mcpServers/shll/command"),
+            config.pointer("/mcpServers/other/command"),
+            Some(&json!("other"))
+        );
+    }
+
+    #[test]
+    fn omp_registers_global_mcp_in_agent_directory() {
+        let home = temp_root("omp-global");
+        let executable = fake_executable(&home);
+        let mut written = Vec::new();
+        install_agent(
+            Agent::Omp,
+            &home,
+            &home,
+            &executable,
+            true,
+            None,
+            &mut written,
+        )
+        .expect("register OMP global MCP");
+        let target = home.join(".omp/agent/mcp.json");
+        let config: Value = serde_json::from_slice(&fs::read(&target).expect("read OMP config"))
+            .expect("parse OMP config");
+        assert_eq!(
+            config.pointer("/mcpServers/shll/command"),
             Some(&json!(executable))
+        );
+        assert!(
+            written
+                .iter()
+                .any(|path| path.contains(".omp/agent/mcp.json"))
         );
     }
 
