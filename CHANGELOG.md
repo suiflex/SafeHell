@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.7.0](https://github.com/suiflex/SafeHell/compare/v0.6.1...v0.7.0) (2026-11-19)
+
+
+### Features
+
+* add Kurir harness installers ([da6b12c](https://github.com/suiflex/SafeHell/commit/da6b12c3fb7b21c49a940d6d09887eb371567518))
+* add OMP snippet to installer ([b2f9c6b](https://github.com/suiflex/SafeHell/commit/b2f9c6b172b286e5e78e0cc031dec03e947c0bf3))
+* register OMP MCP through Kurir 0.8 ([bdfcc55](https://github.com/suiflex/SafeHell/commit/bdfcc5525d8d1c88b97e53feb1243f01981be716))
+
 ## [0.6.1](https://github.com/suiflex/SafeHell/compare/v0.6.0...v0.6.1) (2026-09-16)
 
 
