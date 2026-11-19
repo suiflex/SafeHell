@@ -25,8 +25,8 @@ The MCP server is `shll` and not the product name on purpose: a model types it o
 tool call, so it is kept short. `install` supports `arsy-code`, `codex`, `claude`,
 `claude-code`, `claude-desktop`, `cursor`, `gemini`, `opencode`, `hermes`,
 `openclaw`, `antigravity`, `antigravity-desktop`, `windsurf`, `copilot`,
-`copilot-cli`, `zed`, `jcode`, `zcode`, `cline`, and `roo`. OMP remains a Kurir
-snippet-only harness, so it has no installer. Omitting `--agent` opens a picker
+`copilot-cli`, `zed`, `jcode`, `zcode`, `omp`, `cline`, and `roo`. OMP prints a
+Kurir MCP snippet for manual configuration. Omitting `--agent` opens a picker
 on a terminal and otherwise installs only for the agents whose own configuration
 is detected — never for all of them. It removes stale
 `safeshell` and `safehell` registrations — and any existing `shll` registration, so a

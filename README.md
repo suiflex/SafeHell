@@ -300,6 +300,7 @@ the model to prefer SafeHell over direct SSH. Per agent:
 |`antigravity-desktop`|Kurir → Antigravity Desktop config|`AGENTS.md`|—|
 |`jcode`|Kurir → `~/.jcode/config.json` (user scope)|`AGENTS.md`|—|
 |`zcode`|Kurir → `.zcode/config.json` (project) or `~/.zcode/cli/config.json`|`AGENTS.md`|—|
+|`omp`|Kurir → print manual MCP configuration snippet|—|—|
 |`cline`|VS Code `cline_mcp_settings.json` (local fallback)|`AGENTS.md` (project) or `.agents/AGENTS.md`|—|
 |`roo`|VS Code `cline_mcp_settings.json` (local fallback)|`AGENTS.md` (project) or `.roo/rules/safehell.md`|—|
 
@@ -307,8 +308,8 @@ Kurir owns the shared harness paths, entry shapes, backups, delegated CLIs,
 and conflict handling. Cline and Roo remain local fallback integrations
 because their extension-owned VS Code profile is not modeled by Kurir yet.
 The new harnesses require an explicit `--agent` selection, except Zed when
-`.zed/` exists in the project. OMP is not an installer target because Kurir
-only prints a portable configuration snippet for it.
+`.zed/` exists in the project. `--agent omp` prints Kurir's MCP snippet for
+manual configuration because Kurir has no OMP MCP registry target.
 
 Installing removes any earlier `safeshell` or `safehell` registration first
 where the harness exposes a removable or file-based registry, then replaces
