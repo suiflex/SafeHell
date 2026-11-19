@@ -22,10 +22,13 @@ reintroduce it.
 | Release assets | `safehell-{linux,macos,windows}-{x86_64,aarch64}` |
 
 The MCP server is `shll` and not the product name on purpose: a model types it on every
-tool call, so it is kept short. `install` supports `codex`, `claude`, `cursor`,
-`opencode`, `hermes`, `openclaw`, `antigravity`, `windsurf`, `copilot`, `cline`, and
-`roo`. Omitting `--agent` opens a picker on a terminal and otherwise installs only for
-the agents whose own configuration is detected — never for all of them. It removes stale
+tool call, so it is kept short. `install` supports `arsy-code`, `codex`, `claude`,
+`claude-code`, `claude-desktop`, `cursor`, `gemini`, `opencode`, `hermes`,
+`openclaw`, `antigravity`, `antigravity-desktop`, `windsurf`, `copilot`,
+`copilot-cli`, `zed`, `jcode`, `zcode`, `cline`, and `roo`. OMP remains a Kurir
+snippet-only harness, so it has no installer. Omitting `--agent` opens a picker
+on a terminal and otherwise installs only for the agents whose own configuration
+is detected — never for all of them. It removes stale
 `safeshell` and `safehell` registrations — and any existing `shll` registration, so a
 re-install also repairs a stale binary path — before adding it, so upgrading never leaves
 two servers exposing the same tools (`src/integrations.rs`). Policy seeds in `AGENTS.md`,
@@ -36,7 +39,8 @@ re-install.
 Detection markers are always the agent's own configuration, never a file SafeHell wrote,
 or a re-run would keep adding the target it created last time. `.agents` alone is not an
 Antigravity marker for that reason: Codex, Cursor, and OpenCode all share
-`.agents/skills`.
+`.agents/skills`. The new harnesses need explicit selection except Zed when
+`.zed/` exists in a project.
 
 Where an agent keeps its MCP registry outside the repository, SafeHell writes it there
 rather than seeding a policy that names tools nothing can reach: Hermes and Windsurf are
@@ -70,7 +74,7 @@ package.
 
 `setup`, `init`, `update [--version]`, `server {add,list,remove}`, `serve [--yes]`,
 `exec <alias> [--reason] [--max-lines] -- <cmd>`, `audit [--tail]`, `mcp`,
-`install [--global] [--agent <codex,claude,cursor,opencode,hermes,openclaw,antigravity,windsurf,copilot,cline,roo>]`,
+`install [--global] [--agent <agent>...]` (see `safehell install --help` for choices),
 and the hidden `hook <agent>`.
 
 ## Invariants
