@@ -42,6 +42,7 @@ commands, use the `shll` MCP tools instead of direct `ssh`, `scp`, `sftp`, \
 const PROJECT_AGENT_MARKERS: &[(Agent, &[&str])] = &[
     (Agent::Codex, &[".codex"]),
     (Agent::Claude, &[".claude"]),
+    (Agent::Zed, &[".zed"]),
     (Agent::Cursor, &[".cursor", ".cursorrules"]),
     (Agent::Opencode, &[".opencode", "opencode.json"]),
     (Agent::Hermes, &[".hermes"]),
@@ -185,13 +186,20 @@ fn install_agent(
             install_hooked_agent(agent, root, home, executable, global, project, written)
         }
         Agent::Cursor
+        | Agent::ClaudeCode
+        | Agent::ClaudeDesktop
         | Agent::Opencode
         | Agent::Antigravity
+        | Agent::AntigravityDesktop
         | Agent::Openclaw
-        | Agent::Windsurf => {
+        | Agent::Windsurf
+        | Agent::CopilotCli
+        | Agent::Zed
+        | Agent::Jcode
+        | Agent::Zcode => {
             install_file_agent(agent, root, home, executable, global, project, written)
         }
-        Agent::Hermes | Agent::Copilot => {
+        Agent::ArsyCode | Agent::Gemini | Agent::Hermes | Agent::Copilot => {
             install_cli_agent(agent, root, home, executable, global, project, written)
         }
         Agent::Cline | Agent::Roo => {
@@ -245,6 +253,21 @@ fn install_file_agent(
     register_mcp(agent, root, home, executable, global, project, written)?;
     purge_legacy_file(agent, root, home, global, written)?;
     match agent {
+        Agent::ClaudeCode => seed_user_policy(
+            root,
+            if global {
+                ".claude/CLAUDE.md"
+            } else {
+                "CLAUDE.md"
+            },
+            written,
+        ),
+        Agent::ClaudeDesktop
+        | Agent::AntigravityDesktop
+        | Agent::CopilotCli
+        | Agent::Zed
+        | Agent::Jcode
+        | Agent::Zcode => seed_user_policy(root, "AGENTS.md", written),
         Agent::Cursor => seed_owned_policy(
             root,
             ".cursor/rules/safehell.mdc",
@@ -295,8 +318,18 @@ fn install_cli_agent(
     written: &mut Vec<String>,
 ) -> Result<()> {
     register_mcp(agent, root, home, executable, global, project, written)?;
-    if !global {
-        seed_user_policy(root, "AGENTS.md", written)?;
+    match agent {
+        Agent::Gemini => seed_user_policy(
+            root,
+            if global {
+                ".gemini/GEMINI.md"
+            } else {
+                "GEMINI.md"
+            },
+            written,
+        )?,
+        _ if !global => seed_user_policy(root, "AGENTS.md", written)?,
+        _ => {}
     }
     Ok(())
 }
@@ -337,7 +370,23 @@ fn harness_for(agent: Agent) -> Option<kurir::Harness> {
         Agent::Windsurf => kurir::Harness::Windsurf,
         Agent::Copilot => kurir::Harness::Vscode,
         Agent::Cline | Agent::Roo => return None,
+        _ => new_harness_for(agent),
     })
+}
+
+fn new_harness_for(agent: Agent) -> kurir::Harness {
+    match agent {
+        Agent::ArsyCode => kurir::Harness::ArsyCode,
+        Agent::ClaudeCode => kurir::Harness::ClaudeCode,
+        Agent::ClaudeDesktop => kurir::Harness::ClaudeDesktop,
+        Agent::Gemini => kurir::Harness::GeminiCli,
+        Agent::CopilotCli => kurir::Harness::CopilotCli,
+        Agent::Zed => kurir::Harness::Zed,
+        Agent::AntigravityDesktop => kurir::Harness::AntigravityDesktop,
+        Agent::Jcode => kurir::Harness::Jcode,
+        Agent::Zcode => kurir::Harness::Zcode,
+        _ => unreachable!("existing agent harness"),
+    }
 }
 
 fn register_mcp(
@@ -356,7 +405,7 @@ fn register_mcp(
         unregister_legacy_mcp(agent, global, project);
     }
     let options = kurir::RegistrationOptions {
-        scope: if global {
+        scope: if global || agent == Agent::Jcode {
             kurir::Scope::User
         } else {
             kurir::Scope::Project
@@ -410,9 +459,43 @@ fn registration_config(agent: Agent, root: &Path, home: &Path, global: bool) -> 
             }
         }
         Agent::Windsurf => home.join(".codeium/windsurf/mcp_config.json"),
+        Agent::ClaudeCode
+        | Agent::ClaudeDesktop
+        | Agent::AntigravityDesktop
+        | Agent::CopilotCli
+        | Agent::Zed
+        | Agent::Jcode
+        | Agent::Zcode => new_registration_config(agent, root, home, global),
         _ => return None,
     };
     Some(path)
+}
+
+fn new_registration_config(agent: Agent, root: &Path, home: &Path, global: bool) -> PathBuf {
+    match agent {
+        Agent::ClaudeCode => {
+            if global {
+                home.join(".claude.json")
+            } else {
+                root.join(".mcp.json")
+            }
+        }
+        Agent::ClaudeDesktop => {
+            home.join("Library/Application Support/Claude/claude_desktop_config.json")
+        }
+        Agent::AntigravityDesktop => home.join(".gemini/antigravity/mcp_config.json"),
+        Agent::CopilotCli => home.join(".copilot/mcp-config.json"),
+        Agent::Zed => home.join(".config/zed/settings.json"),
+        Agent::Jcode => home.join(".jcode/config.json"),
+        Agent::Zcode => {
+            if global {
+                home.join(".zcode/cli/config.json")
+            } else {
+                root.join(".zcode/config.json")
+            }
+        }
+        _ => unreachable!("existing registration config"),
+    }
 }
 
 /// Directory VS Code keeps per-extension state in. Cline and Roo Code both
@@ -1096,6 +1179,66 @@ mod tests {
         assert_eq!(harness_for(Agent::Copilot), Some(kurir::Harness::Vscode));
         assert_eq!(harness_for(Agent::Cline), None);
         assert_eq!(harness_for(Agent::Roo), None);
+    }
+
+    #[test]
+    fn new_file_harnesses_register_safehell_and_preserve_settings() {
+        for (agent, relative, pointer) in [
+            (Agent::ClaudeCode, ".mcp.json", "/mcpServers/shll"),
+            (
+                Agent::ClaudeDesktop,
+                "Library/Application Support/Claude/claude_desktop_config.json",
+                "/mcpServers/shll",
+            ),
+            (
+                Agent::CopilotCli,
+                ".copilot/mcp-config.json",
+                "/mcpServers/shll",
+            ),
+            (
+                Agent::Zed,
+                ".config/zed/settings.json",
+                "/context_servers/shll",
+            ),
+            (
+                Agent::AntigravityDesktop,
+                ".gemini/antigravity/mcp_config.json",
+                "/mcpServers/shll",
+            ),
+            (Agent::Jcode, ".jcode/config.json", "/mcp_servers/shll"),
+            (Agent::Zcode, ".zcode/config.json", "/mcp/servers/shll"),
+        ] {
+            let root = temp_root(agent.slug());
+            let executable = fake_executable(&root);
+            let path = root.join(relative);
+            fs::create_dir_all(path.parent().expect("config parent")).expect("create config dir");
+            fs::write(&path, r#"{"other":true}"#).expect("seed other setting");
+            let mut written = Vec::new();
+            install_agent(agent, &root, &root, &executable, false, None, &mut written)
+                .expect("install file harness");
+            let config: Value =
+                serde_json::from_str(&fs::read_to_string(path).expect("read config"))
+                    .expect("parse config");
+            assert_eq!(config.get("other"), Some(&json!(true)));
+            assert_eq!(
+                config.pointer(&format!("{pointer}/command")),
+                Some(&json!(executable)),
+                "{}",
+                agent.slug()
+            );
+            let policy = if agent == Agent::ClaudeCode {
+                "CLAUDE.md"
+            } else {
+                "AGENTS.md"
+            };
+            assert!(root.join(policy).is_file(), "{}", agent.slug());
+        }
+    }
+
+    #[test]
+    fn new_cli_harnesses_map_to_kurir() {
+        assert_eq!(harness_for(Agent::ArsyCode), Some(kurir::Harness::ArsyCode));
+        assert_eq!(harness_for(Agent::Gemini), Some(kurir::Harness::GeminiCli));
     }
 
     #[test]
